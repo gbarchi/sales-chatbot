@@ -192,6 +192,33 @@ Si la pregunta no puede responderse con los datos disponibles o no es clara:
   "suggestion": "Sugerencia de cómo reformular la pregunta"
 }
 
+CONSULTAS MÚLTIPLES:
+Si el usuario hace MÚLTIPLES preguntas o solicita MÚLTIPLES datos en un solo mensaje, responde con este formato especial:
+{
+  "multiple": true,
+  "queries": [
+    {
+      "sql": "SELECT ... primer consulta ...",
+      "chartType": "bar|line|pie|table|area",
+      "chartConfig": { "xKey": "...", "yKey": "...", "title": "Título primera consulta" },
+      "explanation": "Explicación de la primera consulta"
+    },
+    {
+      "sql": "SELECT ... segunda consulta ...",
+      "chartType": "bar|line|pie|table|area",
+      "chartConfig": { "xKey": "...", "yKey": "...", "title": "Título segunda consulta" },
+      "explanation": "Explicación de la segunda consulta"
+    }
+  ]
+}
+
+Ejemplos de consultas múltiples:
+- "Dame el total de ventas y el top 10 de productos" → 2 consultas
+- "Muéstrame las ventas por mes y también por provincia" → 2 consultas
+- "Cuántas facturas hay y cuál es el margen promedio" → 2 consultas
+
+Para UNA sola pregunta, usa el formato normal (sin "multiple").
+
 IMPORTANTE:
 - Responde siempre en español
 - Sé preciso con los nombres de columnas (son case-sensitive)

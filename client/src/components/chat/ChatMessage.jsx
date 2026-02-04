@@ -1,21 +1,21 @@
 import React, { useState } from 'react';
+import ChartCarousel from '../charts/ChartCarousel';
+import ChartContainer from '../charts/ChartContainer';
 
-function ChatMessage({ message, isSelected, onSelect }) {
+function ChatMessage({ message }) {
   const [showSQL, setShowSQL] = useState(false);
   const isBot = message.type === 'bot';
   const hasChart = isBot && message.data && message.data.length > 0;
+  const hasMultiResults = isBot && message.results && message.results.length > 0;
 
-  const handleClick = () => {
-    if (hasChart && onSelect) {
-      onSelect(message.id);
-    }
+  const handleDrillDown = (dimension, value) => {
+    const drillQuery = `Muéstrame el detalle de ventas de ${value}`;
+    const event = new CustomEvent('drillDownQuery', { detail: drillQuery });
+    window.dispatchEvent(event);
   };
 
   return (
-    <div
-      className={`chat-message ${isBot ? 'bot' : 'user'} ${message.isError ? 'error' : ''} ${isSelected ? 'selected' : ''} ${hasChart ? 'has-chart' : ''}`}
-      onClick={handleClick}
-    >
+    <div className={`chat-message ${isBot ? 'bot' : 'user'} ${message.isError ? 'error' : ''}`}>
       {isBot && (
         <div className="avatar">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -40,22 +40,33 @@ function ChatMessage({ message, isSelected, onSelect }) {
           </div>
         )}
 
-        {message.rowCount !== undefined && (
+        {message.rowCount !== undefined && !hasMultiResults && (
           <div className="row-count">
             📊 {message.rowCount} {message.rowCount === 1 ? 'resultado' : 'resultados'}
           </div>
         )}
 
-        {hasChart && (
-          <div className={`chart-indicator ${isSelected ? 'active' : ''}`}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M5 9.2h3V19H5V9.2zM10.6 5h2.8v14h-2.8V5zm5.6 8H19v6h-2.8v-6z" fill="currentColor"/>
-            </svg>
-            {isSelected ? 'Gráfico visible' : 'Click para ver gráfico'}
+        {/* Single chart inline */}
+        {hasChart && !hasMultiResults && (
+          <div className="inline-chart">
+            <ChartContainer
+              data={message.data}
+              chartType={message.chartType}
+              chartConfig={message.chartConfig}
+              onDrillDown={handleDrillDown}
+            />
           </div>
         )}
 
-        {message.analysis && (
+        {/* Multi-results in carousel */}
+        {hasMultiResults && (
+          <div className="multi-results-container">
+            <ChartCarousel results={message.results} onDrillDown={handleDrillDown} />
+          </div>
+        )}
+
+        {/* Analysis section - always shown after chart */}
+        {message.analysis && !hasMultiResults && (
           <div className="analysis-section">
             <div className="analysis-header">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -154,41 +165,12 @@ function ChatMessage({ message, isSelected, onSelect }) {
           color: var(--text-secondary);
         }
 
-        .chat-message.has-chart {
-          cursor: pointer;
-          transition: all 0.2s ease;
-        }
-
-        .chat-message.has-chart:hover {
-          transform: translateX(4px);
-        }
-
-        .chat-message.selected .message-content {
-          border-left: 3px solid var(--primary-color);
-          padding-left: 8px;
-          margin-left: -11px;
-        }
-
-        .chart-indicator {
-          margin-top: 8px;
-          padding: 6px 10px;
-          background: #e8f4fd;
-          border-radius: 6px;
-          font-size: 12px;
-          color: #1976d2;
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          transition: all 0.2s ease;
-        }
-
-        .chart-indicator.active {
-          background: var(--primary-color);
-          color: white;
-        }
-
-        .chat-message.has-chart:hover .chart-indicator:not(.active) {
-          background: #d1e7f8;
+        .inline-chart {
+          margin-top: 16px;
+          border-radius: 12px;
+          overflow: hidden;
+          border: 1px solid var(--border-color);
+          background: white;
         }
 
         .analysis-section {
@@ -254,6 +236,13 @@ function ChatMessage({ message, isSelected, onSelect }) {
           overflow-x: auto;
           white-space: pre-wrap;
           word-break: break-word;
+        }
+
+        .multi-results-container {
+          margin-top: 12px;
+          border: 1px solid var(--border-color);
+          border-radius: 12px;
+          overflow: hidden;
         }
       `}</style>
     </div>

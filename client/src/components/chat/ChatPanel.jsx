@@ -4,7 +4,7 @@ import ChatInput from './ChatInput';
 import DateFilter from '../common/DateFilter';
 import { sendChatMessage } from '../../services/api';
 
-function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSuggestionClick, isLoading, setIsLoading, selectedMessageId, onSelectMessage, dateFilter, onDateFilterChange, dateRange }) {
+function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSuggestionClick, isLoading, setIsLoading, dateFilter, onDateFilterChange, dateRange }) {
   const messagesEndRef = useRef(null);
   const abortControllerRef = useRef(null);
 
@@ -97,8 +97,6 @@ function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSugge
           <ChatMessage
             key={message.id}
             message={message}
-            isSelected={message.id === selectedMessageId}
-            onSelect={onSelectMessage}
           />
         ))}
 
@@ -149,18 +147,22 @@ function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSugge
 
       <style>{`
         .chat-panel {
+          width: 100%;
+          max-width: 900px;
           display: flex;
           flex-direction: column;
           height: 100%;
+          background: var(--card-background);
+          box-shadow: 0 0 20px rgba(0, 0, 0, 0.05);
         }
 
         .messages-container {
           flex: 1;
           overflow-y: auto;
-          padding: 16px;
+          padding: 24px;
           display: flex;
           flex-direction: column;
-          gap: 16px;
+          gap: 20px;
         }
 
         .loading-message {
@@ -267,6 +269,16 @@ function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSugge
         .suggestion-text {
           font-size: 14px;
           color: var(--text-primary);
+        }
+
+        @media (max-width: 768px) {
+          .chat-panel {
+            max-width: 100%;
+          }
+
+          .messages-container {
+            padding: 16px;
+          }
         }
       `}</style>
     </div>

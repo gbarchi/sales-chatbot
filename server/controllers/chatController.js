@@ -27,7 +27,44 @@ export async function handleChat(req, res) {
       });
     }
 
-    // Execute the SQL query
+    // Handle MULTIPLE queries
+    if (llmResponse.multiple && llmResponse.queries && llmResponse.queries.length > 0) {
+      const results = [];
+
+      for (const queryItem of llmResponse.queries) {
+        try {
+          const data = await dataService.executeQuery(queryItem.sql);
+          const analysis = data && data.length > 0
+            ? await llmService.analyzeResults(query, data, queryItem.chartConfig)
+            : null;
+
+          results.push({
+            data,
+            chartType: queryItem.chartType,
+            chartConfig: queryItem.chartConfig,
+            explanation: queryItem.explanation,
+            analysis,
+            sql: queryItem.sql,
+            rowCount: data.length
+          });
+        } catch (sqlError) {
+          console.error('SQL Error in multi-query:', sqlError);
+          results.push({
+            error: true,
+            message: `Error ejecutando consulta: ${sqlError.message}`,
+            sql: queryItem.sql
+          });
+        }
+      }
+
+      return res.json({
+        type: 'multi',
+        results,
+        totalQueries: results.length
+      });
+    }
+
+    // Handle SINGLE query (original behavior)
     let data;
     try {
       data = await dataService.executeQuery(llmResponse.sql);

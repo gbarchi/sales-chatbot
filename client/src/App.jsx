@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Layout from './components/common/Layout';
 import ChatPanel from './components/chat/ChatPanel';
-import ChartContainer from './components/charts/ChartContainer';
 import LoginPage from './components/auth/LoginPage';
 import AdminPanel from './components/admin/AdminPanel';
 import { useAuth } from './context/AuthContext';
@@ -10,7 +9,6 @@ import { fetchSuggestions, fetchMetadata } from './services/api';
 function App() {
   const { isAuthenticated, loading: authLoading, user, logout } = useAuth();
   const [messages, setMessages] = useState([]);
-  const [selectedMessageId, setSelectedMessageId] = useState(null);
   const [suggestions, setSuggestions] = useState([]);
   const [metadata, setMetadata] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -96,6 +94,11 @@ function App() {
       botMessage.content = response.message;
       botMessage.suggestion = response.suggestion;
       botMessage.isError = true;
+    } else if (response.type === 'multi') {
+      // Handle multiple query results
+      botMessage.content = `Encontré ${response.results.length} resultados para tu consulta.`;
+      botMessage.results = response.results;
+      botMessage.isMulti = true;
     } else {
       botMessage.content = response.explanation;
       botMessage.data = response.data;
@@ -107,11 +110,6 @@ function App() {
     }
 
     setMessages(prev => [...prev, botMessage]);
-
-    // Auto-select the new message to display its chart
-    if (!response.type || response.type !== 'error') {
-      setSelectedMessageId(botMessage.id);
-    }
   };
 
   const handleSuggestionClick = (suggestion) => {
@@ -120,88 +118,29 @@ function App() {
     window.dispatchEvent(event);
   };
 
-  const handleSelectMessage = (messageId) => {
-    setSelectedMessageId(messageId);
-  };
-
-  const handleDrillDown = (dimension, value) => {
-    // Generate a natural language query for the drill-down
-    const drillQuery = `Muéstrame el detalle de ventas de ${value}`;
-
-    // Dispatch custom event to trigger the chat to send this message
-    const event = new CustomEvent('drillDownQuery', { detail: drillQuery });
-    window.dispatchEvent(event);
-  };
-
-  // Get chart data from selected message
-  const selectedMessage = messages.find(m => m.id === selectedMessageId);
-  const currentChart = selectedMessage?.data ? {
-    data: selectedMessage.data,
-    chartType: selectedMessage.chartType,
-    chartConfig: selectedMessage.chartConfig
-  } : null;
-
   return (
     <Layout user={user} onLogout={logout} onAdminClick={() => setShowAdminPanel(true)}>
       {showAdminPanel && <AdminPanel onClose={() => setShowAdminPanel(false)} />}
       <div className="app-container">
-        <div className="chat-section">
-          <ChatPanel
-            messages={messages}
-            suggestions={suggestions}
-            onNewMessage={handleNewMessage}
-            onBotResponse={handleBotResponse}
-            onSuggestionClick={handleSuggestionClick}
-            isLoading={isLoading}
-            setIsLoading={setIsLoading}
-            selectedMessageId={selectedMessageId}
-            onSelectMessage={handleSelectMessage}
-            dateFilter={dateFilter}
-            onDateFilterChange={setDateFilter}
-            dateRange={metadata?.dateRange}
-          />
-        </div>
-        <div className="chart-section">
-          <ChartContainer
-            data={currentChart?.data}
-            chartType={currentChart?.chartType}
-            chartConfig={currentChart?.chartConfig}
-            onDrillDown={handleDrillDown}
-          />
-        </div>
+        <ChatPanel
+          messages={messages}
+          suggestions={suggestions}
+          onNewMessage={handleNewMessage}
+          onBotResponse={handleBotResponse}
+          onSuggestionClick={handleSuggestionClick}
+          isLoading={isLoading}
+          setIsLoading={setIsLoading}
+          dateFilter={dateFilter}
+          onDateFilterChange={setDateFilter}
+          dateRange={metadata?.dateRange}
+        />
       </div>
       <style>{`
         .app-container {
-          display: grid;
-          grid-template-columns: 450px 1fr;
           height: calc(100vh - 60px);
-          gap: 0;
-        }
-
-        .chat-section {
-          background: var(--card-background);
-          border-right: 1px solid var(--border-color);
           display: flex;
-          flex-direction: column;
-          overflow: hidden;
-        }
-
-        .chart-section {
+          justify-content: center;
           background: var(--background-color);
-          padding: 20px;
-          overflow: auto;
-        }
-
-        @media (max-width: 1024px) {
-          .app-container {
-            grid-template-columns: 1fr;
-            grid-template-rows: 1fr 1fr;
-          }
-
-          .chat-section {
-            border-right: none;
-            border-bottom: 1px solid var(--border-color);
-          }
         }
       `}</style>
     </Layout>
