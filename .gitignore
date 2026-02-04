@@ -30,8 +30,9 @@ npm-debug.log*
 server/data/*.db
 
 # Data files (too large for git)
-data/
+# Full CSV excluded, only sample included
 *.csv
+!data/sales_sample.csv
 
 # Docker volumes
 docker-data/
