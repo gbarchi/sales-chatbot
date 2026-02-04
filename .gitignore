@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Environment files (contain secrets)
+.env
+.env.local
+.env.docker
+server/.env
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build outputs
+client/build/
+dist/
+
+# Logs
+*.log
+npm-debug.log*
+
+# SQLite databases (user data)
+server/data/*.db
+
+# Data files (too large for git)
+data/
+*.csv
+
+# Docker volumes
+docker-data/

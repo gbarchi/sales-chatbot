@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: maviju-salesbot-server
+    restart: unless-stopped
+    environment:
+      - PORT=3001
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}
+      - CSV_PATH=/app/data/sales.csv
+      - AUTH_ENABLED=${AUTH_ENABLED:-true}
+      - JWT_SECRET=${JWT_SECRET:-maviju-salesbot-secret-2024}
+    volumes:
+      # Mount the CSV data file
+      - ../MAVIJU_DASHBOARD_VENTAS_ANL_VTA_2 0.csv:/app/data/sales.csv:ro
+    ports:
+      - "3001:3001"
+    networks:
+      - maviju-network
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: maviju-salesbot-client
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - server
+    networks:
+      - maviju-network
+
+networks:
+  maviju-network:
+    driver: bridge
