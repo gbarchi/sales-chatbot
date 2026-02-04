@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useCallback } from 'react';
 import ChatMessage from './ChatMessage';
 import ChatInput from './ChatInput';
 import DateFilter from '../common/DateFilter';
@@ -6,6 +6,7 @@ import { sendChatMessage } from '../../services/api';
 
 function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSuggestionClick, isLoading, setIsLoading, selectedMessageId, onSelectMessage, dateFilter, onDateFilterChange, dateRange }) {
   const messagesEndRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -27,7 +28,23 @@ function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSugge
     return () => window.removeEventListener('drillDownQuery', handleDrillDown);
   }, [isLoading, messages]); // Include messages for conversation history
 
+  const handleCancelQuery = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      setIsLoading(false);
+    }
+  }, [setIsLoading]);
+
   const handleSendMessage = async (message) => {
+    // Cancel any existing request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    // Create new AbortController for this request
+    abortControllerRef.current = new AbortController();
+
     onNewMessage(message);
     setIsLoading(true);
 
@@ -48,16 +65,26 @@ function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSugge
           }
         });
 
-      const response = await sendChatMessage(message, conversationHistory, dateFilter);
+      const response = await sendChatMessage(message, conversationHistory, dateFilter, abortControllerRef.current.signal);
       onBotResponse(response);
     } catch (error) {
-      onBotResponse({
-        type: 'error',
-        message: 'Error de conexión con el servidor',
-        suggestion: 'Verifica que el servidor esté ejecutándose en el puerto 3001'
-      });
+      // Don't show error if request was cancelled by user
+      if (error.name === 'AbortError') {
+        onBotResponse({
+          type: 'error',
+          message: 'Consulta cancelada',
+          suggestion: 'Puedes realizar una nueva consulta'
+        });
+      } else {
+        onBotResponse({
+          type: 'error',
+          message: 'Error de conexión con el servidor',
+          suggestion: 'Verifica que el servidor esté ejecutándose en el puerto 3001'
+        });
+      }
     } finally {
       setIsLoading(false);
+      abortControllerRef.current = null;
     }
   };
 
@@ -83,6 +110,12 @@ function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSugge
               <span></span>
             </div>
             <span className="loading-text">Analizando datos...</span>
+            <button className="cancel-button" onClick={handleCancelQuery} title="Cancelar consulta">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Detener
+            </button>
           </div>
         )}
 
@@ -163,6 +196,27 @@ function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSugge
 
         .loading-text {
           font-size: 14px;
+          flex: 1;
+        }
+
+        .cancel-button {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          padding: 6px 12px;
+          border: 1px solid #dc2626;
+          background: white;
+          color: #dc2626;
+          border-radius: 6px;
+          font-size: 12px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .cancel-button:hover {
+          background: #dc2626;
+          color: white;
         }
 
         .suggestions-section {

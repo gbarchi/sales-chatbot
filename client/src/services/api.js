@@ -5,7 +5,7 @@ const getAuthHeaders = () => {
   return token ? { 'Authorization': `Bearer ${token}` } : {};
 };
 
-export async function sendChatMessage(query, conversationHistory = [], dateFilter = null) {
+export async function sendChatMessage(query, conversationHistory = [], dateFilter = null, signal = null) {
   const response = await fetch(`${API_BASE}/chat`, {
     method: 'POST',
     headers: {
@@ -13,6 +13,7 @@ export async function sendChatMessage(query, conversationHistory = [], dateFilte
       ...getAuthHeaders()
     },
     body: JSON.stringify({ query, conversationHistory, dateFilter }),
+    signal, // AbortController signal for cancellation
   });
 
   if (!response.ok) {
