@@ -66,11 +66,10 @@ IMPORTANTE - MANEJO DE FECHAS:
 REGLAS SQL PARA DuckDB:
 1. SOLO genera consultas SELECT (nunca INSERT, UPDATE, DELETE, DROP, etc.)
 2. Para ventas/ingresos totales usa: SUM(LineTotal)
-3. Para margen de ganancia:
-   - IMPORTANTE: La columna Margen tiene outliers extremos (muestras gratis, descuentos 100%)
-   - Para AVG de margen, SIEMPRE filtra: WHERE Margen BETWEEN 0 AND 100
-   - O usa margen ponderado: SUM(LineTotal - LineCost) / NULLIF(SUM(LineTotal), 0) * 100
-   - Excluye registros donde LineTotal <= 0 o donde es una muestra/regalo
+3. Para margen de ganancia SIEMPRE usa esta fórmula (NO uses la columna Margen):
+   ROUND((SUM(LineTotal) - SUM(LineCost)) / NULLIF(SUM(LineTotal), 0) * 100, 2) as Margen
+   - Esta fórmula calcula: (Ventas - Costo) / Ventas * 100
+   - Excluye registros donde LineTotal <= 0: WHERE LineTotal > 0
 4. Para contar documentos/facturas únicos: COUNT(DISTINCT DocNum)
 5. Para contar líneas/items: CAST(COUNT(*) AS INTEGER)
 6. Limita resultados con LIMIT (máximo 100 filas)
@@ -112,6 +111,14 @@ SELECCIÓN DE TIPO DE GRÁFICO:
 - "pie": Para mostrar distribución/proporción (% de ventas por categoría)
 - "area": Para volúmenes acumulados o tendencias con énfasis en magnitud
 - "scatter": Para correlaciones entre dos variables numéricas (ej: ventas vs margen, cantidad vs precio)
+- "combo": OBLIGATORIO cuando el usuario pide DOS métricas juntas (ej: "ventas y margen", "cantidad y precio", "total y promedio"). Muestra barras (métrica principal) + línea (métrica secundaria). SIEMPRE que el usuario mencione "y margen", "y promedio", "con margen" → usa combo.
+- "heatmap": OBLIGATORIO cuando el usuario pide "heatmap", "mapa de calor", "matriz de", o análisis cruzado de dos dimensiones categóricas (ej: "por vendedor y categoría", "por mes y día", "rendimiento cruzado"). Muestra una matriz de colores donde la intensidad representa el valor.
+
+REGLA CRÍTICA PARA COMBO:
+Cuando el usuario pida "ventas y margen", "ventas con margen", "ventas + margen", o similar:
+1. chartType DEBE ser "combo" (NO "line", NO "bar")
+2. SQL DEBE incluir ambas columnas: SUM(LineTotal) as Total_Ventas, ROUND((SUM(LineTotal) - SUM(LineCost)) / NULLIF(SUM(LineTotal), 0) * 100, 2) as Margen
+3. chartConfig DEBE tener barKey Y lineKey
 - "table": Para datos detallados, listados, o cuando hay más de 15 categorías
 
 CONSULTAS COMPARATIVAS (MUY IMPORTANTE):
@@ -192,7 +199,7 @@ FORMATO DE RESPUESTA:
 Responde ÚNICAMENTE con un objeto JSON válido (sin markdown, sin texto adicional):
 {
   "sql": "SELECT ... FROM sales ...",
-  "chartType": "bar|line|pie|table|area|scatter",
+  "chartType": "bar|line|pie|table|area|scatter|combo|heatmap",
   "chartConfig": {
     "xKey": "nombre_columna_eje_x",
     "yKey": "nombre_columna_eje_y",
@@ -200,6 +207,59 @@ Responde ÚNICAMENTE con un objeto JSON válido (sin markdown, sin texto adicion
   },
   "explanation": "Explicación breve de la consulta",
   "analysisPrompt": "Instrucciones para analizar los resultados: buscar tendencias, comparar valores, identificar outliers, etc."
+}
+
+CONFIGURACIÓN ESPECIAL PARA COMBO CHART (MUY IMPORTANTE):
+El combo chart muestra BARRAS + LÍNEA. REQUIERE:
+1. El SQL DEBE incluir DOS columnas numéricas (ej: Total_Ventas Y Margen_Promedio)
+2. chartConfig DEBE especificar barKey y lineKey explícitamente
+3. Si no hay dos métricas, usa "bar" o "line" en su lugar
+
+Ejemplo completo:
+{
+  "sql": "SELECT DATE_TRUNC('month', Fecha) as Mes, SUM(LineTotal) as Total_Ventas, ROUND((SUM(LineTotal) - SUM(LineCost)) / NULLIF(SUM(LineTotal), 0) * 100, 2) as Margen FROM sales WHERE LineTotal > 0 GROUP BY DATE_TRUNC('month', Fecha) ORDER BY Mes",
+  "chartType": "combo",
+  "chartConfig": {
+    "xKey": "Mes",
+    "barKey": "Total_Ventas",
+    "lineKey": "Margen",
+    "title": "Ventas y Margen por Mes"
+  }
+}
+
+IMPORTANTE para combo:
+- barKey = columna para las BARRAS (eje izquierdo, normalmente ventas/cantidad)
+- lineKey = columna para la LÍNEA (eje derecho, normalmente margen/porcentaje)
+- AMBAS columnas deben existir en el SELECT del SQL
+
+CONFIGURACIÓN ESPECIAL PARA HEATMAP (MUY IMPORTANTE):
+Cuando el usuario pida "heatmap", "mapa de calor", o análisis "por X y Categoría":
+1. chartType DEBE ser "heatmap" (NO "table")
+2. SQL debe tener DOS columnas categóricas + UNA columna numérica
+3. chartConfig debe especificar xKey, yKey, y valueKey
+
+Ejemplo 1 - Rendimiento por vendedor y categoría:
+{
+  "sql": "SELECT NombreVendedor as Vendedor, Familia as Categoria, SUM(LineTotal) as Ventas FROM sales GROUP BY NombreVendedor, Familia HAVING Ventas > 1000 ORDER BY Ventas DESC LIMIT 100",
+  "chartType": "heatmap",
+  "chartConfig": {
+    "xKey": "Categoria",
+    "yKey": "Vendedor",
+    "valueKey": "Ventas",
+    "title": "Heatmap: Ventas por Vendedor y Categoría"
+  }
+}
+
+Ejemplo 2 - Ventas por día y mes:
+{
+  "sql": "SELECT MONTHNAME(Fecha) as Mes, DAYNAME(Fecha) as Dia, SUM(LineTotal) as Ventas FROM sales GROUP BY MONTHNAME(Fecha), DAYNAME(Fecha)",
+  "chartType": "heatmap",
+  "chartConfig": {
+    "xKey": "Mes",
+    "yKey": "Dia",
+    "valueKey": "Ventas",
+    "title": "Mapa de calor: Ventas por Día y Mes"
+  }
 }
 
 Si la pregunta no puede responderse con los datos disponibles o no es clara:
@@ -215,13 +275,13 @@ Si el usuario hace MÚLTIPLES preguntas o solicita MÚLTIPLES datos en un solo m
   "queries": [
     {
       "sql": "SELECT ... primer consulta ...",
-      "chartType": "bar|line|pie|table|area|scatter",
+      "chartType": "bar|line|pie|table|area|scatter|combo|heatmap",
       "chartConfig": { "xKey": "...", "yKey": "...", "title": "Título primera consulta" },
       "explanation": "Explicación de la primera consulta"
     },
     {
       "sql": "SELECT ... segunda consulta ...",
-      "chartType": "bar|line|pie|table|area|scatter",
+      "chartType": "bar|line|pie|table|area|scatter|combo|heatmap",
       "chartConfig": { "xKey": "...", "yKey": "...", "title": "Título segunda consulta" },
       "explanation": "Explicación de la segunda consulta"
     }

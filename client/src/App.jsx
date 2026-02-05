@@ -29,6 +29,23 @@ function App() {
         setSuggestions(suggestionsData.queries || []);
         setMetadata(metadataData);
 
+        // Set current year as default filter (or max year available in data)
+        const currentYear = new Date().getFullYear();
+        const dataMaxYear = metadataData.dateRange?.max
+          ? new Date(metadataData.dateRange.max).getFullYear()
+          : currentYear;
+        const defaultYear = Math.min(currentYear, dataMaxYear);
+        console.log('Setting default year filter:', defaultYear, 'current:', currentYear, 'dataMax:', dataMaxYear);
+
+        setDateFilter({
+          id: `year-${defaultYear}`,
+          label: `${defaultYear}`,
+          range: {
+            start: new Date(defaultYear, 0, 1),
+            end: new Date(defaultYear, 11, 31)
+          }
+        });
+
         // Add welcome message
         setMessages([{
           id: 1,
@@ -38,6 +55,16 @@ function App() {
         }]);
       } catch (error) {
         console.error('Error loading initial data:', error);
+        // Still set default year filter even on error
+        const currentYear = new Date().getFullYear();
+        setDateFilter({
+          id: `year-${currentYear}`,
+          label: `${currentYear}`,
+          range: {
+            start: new Date(currentYear, 0, 1),
+            end: new Date(currentYear, 11, 31)
+          }
+        });
         setMessages([{
           id: 1,
           type: 'bot',

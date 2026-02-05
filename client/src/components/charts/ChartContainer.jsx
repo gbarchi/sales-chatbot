@@ -5,8 +5,9 @@ import {
   PieChart, Pie, Cell,
   AreaChart, Area,
   ScatterChart, Scatter, ZAxis,
+  ComposedChart,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  LabelList, ReferenceLine
+  LabelList, ReferenceLine, Rectangle
 } from 'recharts';
 import DataTable from './DataTable';
 import { useAuth } from '../../context/AuthContext';
@@ -76,8 +77,89 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
   // Colors for grouped bar charts
   const COMPARISON_COLORS = ['#3b82f6', '#dc2626', '#22c55e', '#f59e0b'];
 
+  // Determine effective chart type - override LLM decision based on title/data
+  const getEffectiveChartType = () => {
+    const titleLower = title.toLowerCase();
+
+    // FORCE HEATMAP if title contains these keywords
+    const heatmapKeywords = ['heatmap', 'mapa de calor', 'heat map'];
+    if (heatmapKeywords.some(kw => titleLower.includes(kw))) {
+      console.log('Forcing heatmap based on title keyword');
+      return 'heatmap';
+    }
+
+    // FORCE COMBO if title mentions both metrics
+    const comboKeywords = ['y margen', 'con margen', 'y promedio', 'ventas y margen', 'sales and margin'];
+    if (comboKeywords.some(kw => titleLower.includes(kw))) {
+      console.log('Forcing combo based on title keyword');
+      return 'combo';
+    }
+
+    // Check for "por X y Y" pattern suggesting matrix/heatmap
+    if (/por\s+\w+\s+y\s+(categoria|categoría|vendedor|mes|producto|marca)/i.test(title)) {
+      // Check if data has the right structure for heatmap
+      if (data[0]) {
+        const cols = Object.keys(data[0]);
+        // Count non-numeric columns (potential dimensions)
+        const dimensionCols = cols.filter(k => {
+          const val = data[0][k];
+          return typeof val === 'string' || (typeof val === 'number' && !k.toLowerCase().match(/venta|total|margen|cantidad|promedio|sum|avg|count/));
+        });
+        if (dimensionCols.length >= 2) {
+          console.log('Forcing heatmap based on "por X y Y" pattern');
+          return 'heatmap';
+        }
+      }
+    }
+
+    // Check if data has two numeric columns (one for bars, one for line)
+    // Force combo regardless of what LLM returned when we detect margin-like data
+    if (data[0]) {
+      const numericCols = Object.keys(data[0]).filter(k =>
+        k !== xKey && typeof data[0][k] === 'number'
+      );
+      const hasMargenColumn = numericCols.some(k =>
+        k.toLowerCase().includes('margen') ||
+        k.toLowerCase().includes('margin') ||
+        k.toLowerCase().includes('promedio') ||
+        k.toLowerCase().includes('_pct')
+      );
+      // If we have a margin-like column + another numeric column, use combo
+      if (hasMargenColumn && numericCols.length >= 2) {
+        console.log('Forcing combo: found margin column with multiple metrics', numericCols);
+        return 'combo';
+      }
+    }
+
+    // Detect heatmap from data structure: 2 categorical columns + 1 numeric
+    // Only trigger when LLM returned 'table' but data looks like matrix
+    if (chartType === 'table' && data && data.length >= 2) {
+      const cols = Object.keys(data[0]);
+      const stringCols = cols.filter(k => typeof data[0][k] === 'string');
+      const numericCols = cols.filter(k => typeof data[0][k] === 'number');
+
+      // If we have 2+ string columns and 1+ numeric, it could be a heatmap
+      if (stringCols.length >= 2 && numericCols.length >= 1) {
+        // Check if it looks like matrix data (multiple unique values in both dimensions)
+        const dim1Values = new Set(data.map(d => d[stringCols[0]]));
+        const dim2Values = new Set(data.map(d => d[stringCols[1]]));
+
+        // Heatmap makes sense if both dimensions have multiple values and total cells <= 200
+        if (dim1Values.size >= 2 && dim2Values.size >= 2 && dim1Values.size * dim2Values.size <= 200) {
+          console.log('Forcing heatmap: detected matrix structure', { stringCols, dim1: dim1Values.size, dim2: dim2Values.size });
+          return 'heatmap';
+        }
+      }
+    }
+
+    return chartType;
+  };
+
+  const effectiveChartType = getEffectiveChartType();
+  console.log('Chart type:', chartType, '-> effective:', effectiveChartType, 'title:', title);
+
   const renderChart = () => {
-    switch (chartType) {
+    switch (effectiveChartType) {
       case 'line':
         return (
           <ResponsiveContainer width="100%" height={400}>
@@ -432,6 +514,304 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
               />
             </ScatterChart>
           </ResponsiveContainer>
+        );
+
+      case 'combo':
+      case 'dual-axis':
+        // Combo chart: bars for primary metric, line for secondary metric (e.g., sales + margin)
+        // Get all numeric columns except xKey
+        const numericColumns = Object.keys(data[0]).filter(k =>
+          k !== xKey && typeof data[0][k] === 'number'
+        );
+
+        // Determine barKey and lineKey
+        // Priority: 1) explicit config, 2) auto-detect from data
+        let barKey, lineKey;
+
+        if (chartConfig?.barKey) {
+          barKey = chartConfig.barKey;
+        } else if (chartConfig?.yKey) {
+          barKey = chartConfig.yKey;
+        } else {
+          // Default: first numeric column that looks like sales/quantity
+          barKey = numericColumns.find(k =>
+            k.toLowerCase().includes('venta') ||
+            k.toLowerCase().includes('total') ||
+            k.toLowerCase().includes('cantidad')
+          ) || numericColumns[0];
+        }
+
+        if (chartConfig?.lineKey) {
+          lineKey = chartConfig.lineKey;
+        } else {
+          // Find a second numeric column for the line (preferably margin/percentage)
+          lineKey = numericColumns.find(k =>
+            k !== barKey && (
+              k.toLowerCase().includes('margen') ||
+              k.toLowerCase().includes('margin') ||
+              k.toLowerCase().includes('promedio') ||
+              k.toLowerCase().includes('_pct') ||
+              k.toLowerCase().includes('porcentaje')
+            )
+          ) || numericColumns.find(k => k !== barKey);
+        }
+
+        // Debug: log what we detected
+        console.log('Combo chart config:', { barKey, lineKey, numericColumns, chartConfig });
+
+        // Format for percentage values (margin, growth, etc.)
+        const formatPercentage = (value) => {
+          if (typeof value === 'number') {
+            return `${value.toFixed(1)}%`;
+          }
+          return value;
+        };
+
+        // Detect if lineKey is a percentage field
+        const isPercentageField = lineKey && (
+          lineKey.toLowerCase().includes('margen') ||
+          lineKey.toLowerCase().includes('margin') ||
+          lineKey.toLowerCase().includes('porcentaje') ||
+          lineKey.toLowerCase().includes('percent') ||
+          lineKey.toLowerCase().includes('_pct')
+        );
+
+        // If no second metric found, show a notice
+        const hasSecondMetric = lineKey && lineKey !== barKey && data[0][lineKey] !== undefined;
+
+        return (
+          <div>
+            {!hasSecondMetric && (
+              <div style={{
+                padding: '8px 16px',
+                background: '#fef3c7',
+                borderRadius: '6px',
+                marginBottom: '12px',
+                fontSize: '13px',
+                color: '#92400e'
+              }}>
+                Solo se encontró una métrica numérica. Para ver barras + línea, la consulta debe incluir dos métricas (ej: ventas y margen).
+              </div>
+            )}
+            <ResponsiveContainer width="100%" height={400}>
+              <ComposedChart data={data} margin={{ top: 20, right: hasSecondMetric ? 60 : 30, left: 20, bottom: 100 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                <XAxis
+                  dataKey={xKey}
+                  tickFormatter={formatXAxis}
+                  angle={-45}
+                  textAnchor="end"
+                  height={100}
+                  tick={{ fontSize: 11 }}
+                  interval={0}
+                />
+                <YAxis
+                  yAxisId="left"
+                  tickFormatter={formatValue}
+                  tick={{ fontSize: 12 }}
+                  label={{ value: barKey?.replace(/_/g, ' ') || '', angle: -90, position: 'insideLeft', fontSize: 11 }}
+                />
+                {hasSecondMetric && (
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    tickFormatter={isPercentageField ? formatPercentage : formatValue}
+                    tick={{ fontSize: 12 }}
+                    label={{ value: lineKey?.replace(/_/g, ' ') || '', angle: 90, position: 'insideRight', fontSize: 11 }}
+                    domain={isPercentageField ? [0, 'auto'] : ['auto', 'auto']}
+                  />
+                )}
+                <Tooltip
+                  formatter={(value, name) => {
+                    const isPercent = name.toLowerCase().includes('margen') ||
+                                     name.toLowerCase().includes('margin') ||
+                                     name.toLowerCase().includes('_pct');
+                    return [isPercent ? formatPercentage(value) : formatValue(value), name.replace(/_/g, ' ')];
+                  }}
+                />
+                <Legend formatter={(value) => value.replace(/_/g, ' ')} />
+                {barKey && (
+                  <Bar
+                    yAxisId="left"
+                    dataKey={barKey}
+                    fill="#3b82f6"
+                    radius={[4, 4, 0, 0]}
+                    onClick={(d) => onDrillDown && onDrillDown(xKey, d[xKey])}
+                    style={{ cursor: onDrillDown ? 'pointer' : 'default' }}
+                  />
+                )}
+                {hasSecondMetric && (
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey={lineKey}
+                    stroke="#dc2626"
+                    strokeWidth={2}
+                    dot={{ r: 4, fill: '#dc2626' }}
+                    activeDot={{ r: 6 }}
+                  />
+                )}
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        );
+
+      case 'heatmap':
+        // Heatmap for showing intensity across two categorical dimensions
+        // Auto-detect keys from data structure if not provided in chartConfig
+        const heatmapCols = Object.keys(data[0]);
+        const heatmapStringCols = heatmapCols.filter(k => typeof data[0][k] === 'string');
+        const heatmapNumericCols = heatmapCols.filter(k => typeof data[0][k] === 'number');
+
+        // Determine xKey, yKey, valueKey - prefer chartConfig, fallback to auto-detect
+        const heatmapXKey = chartConfig?.xKey || heatmapStringCols[0] || xKey;
+        const heatmapYKey = chartConfig?.yKey || heatmapStringCols[1] || yKey;
+        const valueKey = chartConfig?.valueKey || heatmapNumericCols[0] ||
+          heatmapCols.find(k => k !== heatmapXKey && k !== heatmapYKey && typeof data[0][k] === 'number');
+
+        console.log('Heatmap keys:', { heatmapXKey, heatmapYKey, valueKey });
+
+        // Get unique values for x and y axes
+        const xValues = [...new Set(data.map(d => d[heatmapXKey]))];
+        const yValues = [...new Set(data.map(d => d[heatmapYKey]))];
+
+        // Create a lookup map for values
+        const valueMap = {};
+        let minValue = Infinity;
+        let maxValue = -Infinity;
+        data.forEach(d => {
+          const key = `${d[heatmapXKey]}-${d[heatmapYKey]}`;
+          const val = d[valueKey] || 0;
+          valueMap[key] = val;
+          minValue = Math.min(minValue, val);
+          maxValue = Math.max(maxValue, val);
+        });
+
+        // Color scale function (blue to red through white)
+        const getHeatmapColor = (value) => {
+          if (maxValue === minValue) return '#f0f0f0';
+          const ratio = (value - minValue) / (maxValue - minValue);
+          // Blue (low) -> White (mid) -> Red (high)
+          if (ratio < 0.5) {
+            const r = Math.round(59 + (255 - 59) * (ratio * 2));
+            const g = Math.round(130 + (255 - 130) * (ratio * 2));
+            const b = Math.round(246 + (255 - 246) * (ratio * 2));
+            return `rgb(${r},${g},${b})`;
+          } else {
+            const r = Math.round(255 - (255 - 220) * ((ratio - 0.5) * 2));
+            const g = Math.round(255 - (255 - 38) * ((ratio - 0.5) * 2));
+            const b = Math.round(255 - (255 - 38) * ((ratio - 0.5) * 2));
+            return `rgb(${r},${g},${b})`;
+          }
+        };
+
+        const cellWidth = Math.max(50, Math.min(80, 700 / xValues.length));
+        const cellHeight = 35;
+        const marginLeft = 120;
+        const marginTop = 40;
+
+        return (
+          <div style={{ overflowX: 'auto' }}>
+            <svg
+              width={Math.max(600, marginLeft + xValues.length * cellWidth + 100)}
+              height={marginTop + yValues.length * cellHeight + 60}
+            >
+              {/* X axis labels */}
+              {xValues.map((xVal, xi) => (
+                <text
+                  key={`x-${xi}`}
+                  x={marginLeft + xi * cellWidth + cellWidth / 2}
+                  y={marginTop - 10}
+                  textAnchor="middle"
+                  fontSize={11}
+                  fill="#666"
+                >
+                  {String(xVal).length > 10 ? String(xVal).substring(0, 8) + '...' : xVal}
+                </text>
+              ))}
+
+              {/* Y axis labels and cells */}
+              {yValues.map((yVal, yi) => (
+                <g key={`row-${yi}`}>
+                  <text
+                    x={marginLeft - 10}
+                    y={marginTop + yi * cellHeight + cellHeight / 2 + 4}
+                    textAnchor="end"
+                    fontSize={11}
+                    fill="#666"
+                  >
+                    {String(yVal).length > 15 ? String(yVal).substring(0, 12) + '...' : yVal}
+                  </text>
+                  {xValues.map((xVal, xi) => {
+                    const key = `${xVal}-${yVal}`;
+                    const value = valueMap[key] || 0;
+                    return (
+                      <g key={`cell-${xi}-${yi}`}>
+                        <rect
+                          x={marginLeft + xi * cellWidth}
+                          y={marginTop + yi * cellHeight}
+                          width={cellWidth - 2}
+                          height={cellHeight - 2}
+                          fill={getHeatmapColor(value)}
+                          rx={4}
+                          stroke="#fff"
+                          strokeWidth={1}
+                          style={{ cursor: 'pointer' }}
+                          onClick={() => onDrillDown && onDrillDown(heatmapXKey, xVal)}
+                        >
+                          <title>{`${yVal} - ${xVal}: ${formatValue(value)}`}</title>
+                        </rect>
+                        <text
+                          x={marginLeft + xi * cellWidth + cellWidth / 2 - 1}
+                          y={marginTop + yi * cellHeight + cellHeight / 2 + 4}
+                          textAnchor="middle"
+                          fontSize={10}
+                          fill={value > (minValue + maxValue) / 2 ? '#fff' : '#333'}
+                          fontWeight="500"
+                        >
+                          {formatValue(value)}
+                        </text>
+                      </g>
+                    );
+                  })}
+                </g>
+              ))}
+
+              {/* Legend */}
+              <defs>
+                <linearGradient id="heatmapGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#3b82f6" />
+                  <stop offset="50%" stopColor="#ffffff" />
+                  <stop offset="100%" stopColor="#dc2626" />
+                </linearGradient>
+              </defs>
+              <rect
+                x={marginLeft + xValues.length * cellWidth + 20}
+                y={marginTop}
+                width={20}
+                height={yValues.length * cellHeight}
+                fill="url(#heatmapGradient)"
+                rx={4}
+                transform={`rotate(90, ${marginLeft + xValues.length * cellWidth + 30}, ${marginTop + yValues.length * cellHeight / 2})`}
+              />
+              <text
+                x={marginLeft + xValues.length * cellWidth + 45}
+                y={marginTop + 10}
+                fontSize={10}
+                fill="#666"
+              >
+                {formatValue(maxValue)}
+              </text>
+              <text
+                x={marginLeft + xValues.length * cellWidth + 45}
+                y={marginTop + yValues.length * cellHeight - 5}
+                fontSize={10}
+                fill="#666"
+              >
+                {formatValue(minValue)}
+              </text>
+            </svg>
+          </div>
         );
 
       case 'table':
