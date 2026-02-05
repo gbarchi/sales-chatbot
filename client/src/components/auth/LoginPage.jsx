@@ -1,12 +1,22 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 
 function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [timeoutMessage, setTimeoutMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
+
+  // Check if user was logged out due to session timeout
+  useEffect(() => {
+    const logoutReason = localStorage.getItem('logoutReason');
+    if (logoutReason === 'timeout') {
+      setTimeoutMessage('Tu sesión ha expirado por inactividad. Por favor, inicia sesión nuevamente.');
+      localStorage.removeItem('logoutReason');
+    }
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -37,6 +47,16 @@ function LoginPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="login-form">
+          {timeoutMessage && (
+            <div className="timeout-message">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
+                <path d="M12 6v6l4 2" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+              {timeoutMessage}
+            </div>
+          )}
+
           {error && (
             <div className="error-message">
               {error}
@@ -139,6 +159,20 @@ function LoginPage() {
           display: flex;
           flex-direction: column;
           gap: 20px;
+        }
+
+        .timeout-message {
+          padding: 12px 16px;
+          background: #fefce8;
+          border: 1px solid #fde047;
+          border-radius: 8px;
+          color: #a16207;
+          font-size: 14px;
+          text-align: center;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
         }
 
         .error-message {
