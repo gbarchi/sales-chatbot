@@ -8,6 +8,7 @@ import {
   LabelList, ReferenceLine
 } from 'recharts';
 import DataTable from './DataTable';
+import { useAuth } from '../../context/AuthContext';
 
 const COLORS = [
   '#dc2626', '#ef4444', '#f87171', '#b91c1c', '#991b1b',
@@ -15,6 +16,8 @@ const COLORS = [
 ];
 
 function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
+  const { user } = useAuth();
+
   if (!data || data.length === 0) {
     return (
       <div className="chart-container empty">
@@ -385,12 +388,14 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
       <div className="chart-header">
         <h2>{title}</h2>
         <div className="chart-actions">
-          <button onClick={() => handleExport('csv')} className="export-btn">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-            Exportar CSV
-          </button>
+          {user?.role !== 'vendedor' && (
+            <button onClick={() => handleExport('csv')} className="export-btn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Exportar CSV
+            </button>
+          )}
         </div>
       </div>
 
