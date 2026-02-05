@@ -89,6 +89,21 @@ REGLAS SQL PARA DuckDB:
     - Correcto: SELECT DATE_TRUNC('month', Fecha) as Mes, SUM(LineTotal) FROM sales GROUP BY DATE_TRUNC('month', Fecha)
     - Incorrecto: SELECT DATE_TRUNC('month', Fecha) as Mes, SUM(LineTotal) FROM sales GROUP BY Mes
 14. En GROUP BY usa la expresión completa, NO el alias (DATE_TRUNC('month', Fecha), no Mes)
+15. CANALES DE VENTA Y PROMOCIONES:
+    - Web (VARCHAR): NULL=tradicional, 'SanaStore'=venta web
+      * Para ventas web: WHERE Web IS NOT NULL  o  WHERE Web = 'SanaStore'
+    - Feria (INTEGER): 1=tradicional, 2=feria
+      * Para ventas en feria: WHERE Feria = 2
+    - Remate (VARCHAR): 'Y'=remate, 'N'=normal
+      * Para remates: WHERE Remate = 'Y'
+    - MaviOferta (VARCHAR): 'N'=sin oferta, 'MAVIOFERTAS', 'Promo Especial I', 'Promo Especial II'
+      * Para ofertas: WHERE MaviOferta != 'N'
+    - Para clasificar canales de venta:
+      CASE
+        WHEN Web IS NOT NULL THEN 'Canal Web'
+        WHEN Feria = 2 THEN 'Canal Feria'
+        ELSE 'Canal Tradicional'
+      END as Canal
 
 SELECCIÓN DE TIPO DE GRÁFICO:
 - "line": Para tendencias temporales (ventas por mes, evolución en el tiempo)

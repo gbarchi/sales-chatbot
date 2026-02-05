@@ -233,8 +233,8 @@ function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSugge
         }
 
         .suggestions-grid {
-          display: flex;
-          flex-direction: column;
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
           gap: 8px;
         }
 
@@ -255,7 +255,8 @@ function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSugge
         .suggestion-button:hover {
           border-color: var(--primary-color);
           background: #f8faff;
-          transform: translateX(4px);
+          transform: translateY(-2px);
+          box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }
 
         .suggestion-category {

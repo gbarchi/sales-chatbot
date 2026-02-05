@@ -196,10 +196,10 @@ class DataService {
           { name: 'ProvinciaPrincipal', type: 'STRING', description: 'Provincia del cliente' },
           { name: 'CiudadPrincipal', type: 'STRING', description: 'Ciudad del cliente' },
           { name: 'DocumentoTipo', type: 'STRING', description: 'Tipo de documento (FAC=Factura, etc.)' },
-          { name: 'Remate', type: 'STRING', description: 'Indicador de remate (Y/N)' },
-          { name: 'MaviOferta', type: 'STRING', description: 'Tipo de oferta Mavi (MAVIOFERTAS, Promo Especial, N)' },
-          { name: 'Feria', type: 'STRING', description: 'Indicador de feria' },
-          { name: 'Web', type: 'STRING', description: 'Canal web' },
+          { name: 'Remate', type: 'STRING', description: 'Indicador de remate: Y=sí remate, N=no remate, NULL. Para filtrar remates: Remate = \'Y\'' },
+          { name: 'MaviOferta', type: 'STRING', description: 'Tipo de oferta: N=sin oferta, MAVIOFERTAS, Promo Especial I, Promo Especial II. Para filtrar ofertas: MaviOferta != \'N\'' },
+          { name: 'Feria', type: 'INTEGER', description: 'Canal de venta feria: 1=canal tradicional, 2=venta en feria. Para filtrar ferias: Feria = 2' },
+          { name: 'Web', type: 'STRING', description: 'Canal web: NULL=canal tradicional, SanaStore=venta por web. Para filtrar web: Web IS NOT NULL' },
           { name: 'DescGlobal', type: 'DOUBLE', description: 'Descuento global aplicado' }
         ]
       }

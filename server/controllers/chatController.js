@@ -130,7 +130,9 @@ export async function getSuggestedQueries(req, res) {
       { text: 'Tendencia de los últimos 6 meses', category: 'Tendencias' },
       { text: 'Distribución de ventas por categoría', category: 'Análisis' },
       { text: 'Top 20 clientes', category: 'Clientes' },
-      { text: 'Ventas totales', category: 'Resumen' }
+      { text: 'Ventas totales', category: 'Resumen' },
+      { text: 'Comparativo año actual vs anterior', category: 'Comparativo' },
+      { text: 'Unidades vendidas por mes', category: 'Inventario' }
     ]
   });
 }
