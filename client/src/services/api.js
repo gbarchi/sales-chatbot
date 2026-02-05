@@ -1,19 +1,17 @@
 const API_BASE = process.env.REACT_APP_API_URL || '/api';
 
-const getAuthHeaders = () => {
-  const token = localStorage.getItem('authToken');
-  return token ? { 'Authorization': `Bearer ${token}` } : {};
-};
+// SECURITY: All requests use credentials: 'include' for HttpOnly cookie auth
+// No more localStorage token handling
 
 export async function sendChatMessage(query, conversationHistory = [], dateFilter = null, signal = null) {
   const response = await fetch(`${API_BASE}/chat`, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
-      ...getAuthHeaders()
+      'Content-Type': 'application/json'
     },
+    credentials: 'include',  // SECURITY: HttpOnly cookie auth
     body: JSON.stringify({ query, conversationHistory, dateFilter }),
-    signal, // AbortController signal for cancellation
+    signal,
   });
 
   if (!response.ok) {
@@ -25,7 +23,7 @@ export async function sendChatMessage(query, conversationHistory = [], dateFilte
 
 export async function fetchMetadata() {
   const response = await fetch(`${API_BASE}/metadata`, {
-    headers: getAuthHeaders()
+    credentials: 'include'
   });
 
   if (!response.ok) {
@@ -37,7 +35,7 @@ export async function fetchMetadata() {
 
 export async function fetchSuggestions() {
   const response = await fetch(`${API_BASE}/suggestions`, {
-    headers: getAuthHeaders()
+    credentials: 'include'
   });
 
   if (!response.ok) {
@@ -61,7 +59,7 @@ export async function checkHealth() {
 
 export async function fetchUsers() {
   const response = await fetch(`${API_BASE}/admin/users`, {
-    headers: getAuthHeaders()
+    credentials: 'include'
   });
 
   if (!response.ok) {
@@ -76,9 +74,9 @@ export async function createUser(userData) {
   const response = await fetch(`${API_BASE}/admin/users`, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
-      ...getAuthHeaders()
+      'Content-Type': 'application/json'
     },
+    credentials: 'include',
     body: JSON.stringify(userData)
   });
 
@@ -94,9 +92,9 @@ export async function updateUser(id, userData) {
   const response = await fetch(`${API_BASE}/admin/users/${id}`, {
     method: 'PUT',
     headers: {
-      'Content-Type': 'application/json',
-      ...getAuthHeaders()
+      'Content-Type': 'application/json'
     },
+    credentials: 'include',
     body: JSON.stringify(userData)
   });
 
@@ -111,7 +109,7 @@ export async function updateUser(id, userData) {
 export async function deleteUser(id) {
   const response = await fetch(`${API_BASE}/admin/users/${id}`, {
     method: 'DELETE',
-    headers: getAuthHeaders()
+    credentials: 'include'
   });
 
   if (!response.ok) {
@@ -126,9 +124,9 @@ export async function updatePassword(id, password) {
   const response = await fetch(`${API_BASE}/admin/users/${id}/password`, {
     method: 'PUT',
     headers: {
-      'Content-Type': 'application/json',
-      ...getAuthHeaders()
+      'Content-Type': 'application/json'
     },
+    credentials: 'include',
     body: JSON.stringify({ password })
   });
 
@@ -142,7 +140,7 @@ export async function updatePassword(id, password) {
 
 export async function fetchVendors() {
   const response = await fetch(`${API_BASE}/admin/vendors`, {
-    headers: getAuthHeaders()
+    credentials: 'include'
   });
 
   if (!response.ok) {
@@ -155,7 +153,7 @@ export async function fetchVendors() {
 
 export async function fetchSupervisors() {
   const response = await fetch(`${API_BASE}/admin/supervisors`, {
-    headers: getAuthHeaders()
+    credentials: 'include'
   });
 
   if (!response.ok) {
@@ -170,7 +168,7 @@ export async function fetchSupervisors() {
 
 export async function fetchQueryHistory(limit = 50) {
   const response = await fetch(`${API_BASE}/history?limit=${limit}`, {
-    headers: getAuthHeaders()
+    credentials: 'include'
   });
 
   if (!response.ok) {
@@ -184,7 +182,7 @@ export async function fetchQueryHistory(limit = 50) {
 export async function deleteHistoryItem(id) {
   const response = await fetch(`${API_BASE}/history/${id}`, {
     method: 'DELETE',
-    headers: getAuthHeaders()
+    credentials: 'include'
   });
 
   if (!response.ok) {
@@ -198,7 +196,7 @@ export async function deleteHistoryItem(id) {
 export async function clearQueryHistory() {
   const response = await fetch(`${API_BASE}/history`, {
     method: 'DELETE',
-    headers: getAuthHeaders()
+    credentials: 'include'
   });
 
   if (!response.ok) {

@@ -4,6 +4,14 @@ import { userService } from '../services/userService.js';
 const JWT_SECRET = process.env.JWT_SECRET || 'maviju-salesbot-secret-key-2024';
 const JWT_EXPIRY = process.env.JWT_EXPIRY || '8h';
 
+// Cookie configuration for security
+const COOKIE_OPTIONS = {
+  httpOnly: true,      // SECURITY: Prevents JavaScript access (XSS protection)
+  secure: process.env.NODE_ENV === 'production',  // HTTPS only in production
+  sameSite: 'strict',  // CSRF protection
+  maxAge: 8 * 60 * 60 * 1000  // 8 hours in milliseconds
+};
+
 export async function login(req, res) {
   try {
     const { username, password } = req.body;
@@ -41,9 +49,12 @@ export async function login(req, res) {
     // Get filter context for this user
     const filterContext = userService.getFilterContext(user);
 
+    // SECURITY: Set token in HttpOnly cookie instead of response body
+    res.cookie('authToken', token, COOKIE_OPTIONS);
+
     res.json({
       success: true,
-      token,
+      // Note: token no longer sent in response body for security
       user: {
         id: user.id,
         username: user.username,
@@ -66,16 +77,15 @@ export async function login(req, res) {
 
 export async function verifyToken(req, res) {
   try {
-    const authHeader = req.headers.authorization;
+    // SECURITY: Read token from HttpOnly cookie instead of header
+    const token = req.cookies?.authToken;
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!token) {
       return res.status(401).json({
         success: false,
         message: 'Token no proporcionado'
       });
     }
-
-    const token = authHeader.split(' ')[1];
 
     try {
       const decoded = jwt.verify(token, JWT_SECRET);
@@ -120,6 +130,13 @@ export async function verifyToken(req, res) {
 }
 
 export async function logout(req, res) {
+  // SECURITY: Clear the HttpOnly cookie on logout
+  res.clearCookie('authToken', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict'
+  });
+
   res.json({
     success: true,
     message: 'Sesión cerrada exitosamente'

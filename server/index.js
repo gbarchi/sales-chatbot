@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import { handleChat, getMetadata, getSuggestedQueries } from './controllers/chatController.js';
 import { getHistory, deleteHistory, clearHistory } from './controllers/historyController.js';
@@ -23,8 +24,13 @@ BigInt.prototype.toJSON = function() {
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Middleware
-app.use(cors());
+// SECURITY: Configure CORS with specific origin and credentials for HttpOnly cookies
+const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'];
+app.use(cors({
+  origin: ALLOWED_ORIGINS,
+  credentials: true
+}));
+app.use(cookieParser());
 app.use(express.json());
 
 // Rate limiting (simple implementation)

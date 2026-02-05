@@ -174,6 +174,21 @@ class UserService {
     return dataService.getSupervisors();
   }
 
+  // Escape SQL string to prevent injection (escape single quotes)
+  escapeSqlString(str) {
+    if (typeof str !== 'string') return str;
+    return str.replace(/'/g, "''");
+  }
+
+  // Validate that value is a safe integer
+  validateSqlInteger(value) {
+    const num = parseInt(value, 10);
+    if (isNaN(num) || !Number.isInteger(num)) {
+      return null;
+    }
+    return num;
+  }
+
   // Get filter context for a user's role
   getFilterContext(user) {
     if (!user) {
@@ -190,8 +205,10 @@ class UserService {
 
       case 'supervisor':
         if (user.supervisor_name) {
+          // SECURITY: Escape single quotes to prevent SQL injection
+          const safeName = this.escapeSqlString(user.supervisor_name);
           return {
-            filter: `NombreSupervisor = '${user.supervisor_name}'`,
+            filter: `NombreSupervisor = '${safeName}'`,
             description: `Solo datos del equipo de ${user.supervisor_name}`
           };
         }
@@ -199,9 +216,14 @@ class UserService {
 
       case 'vendedor':
         if (user.slpcode) {
+          // SECURITY: Validate slpcode is a valid integer
+          const safeSlpcode = this.validateSqlInteger(user.slpcode);
+          if (safeSlpcode === null) {
+            return { filter: null, description: 'Código de vendedor inválido' };
+          }
           return {
-            filter: `Slpcode = ${user.slpcode}`,
-            description: `Solo datos del vendedor ${user.name} (Código: ${user.slpcode})`
+            filter: `Slpcode = ${safeSlpcode}`,
+            description: `Solo datos del vendedor ${user.name} (Código: ${safeSlpcode})`
           };
         }
         return { filter: null, description: 'Vendedor sin código asignado' };

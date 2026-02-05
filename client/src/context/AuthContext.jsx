@@ -17,7 +17,9 @@ export function AuthProvider({ children }) {
     const checkAuth = async () => {
       try {
         // First check if auth is enabled
-        const statusRes = await fetch(`${API_BASE}/auth/status`);
+        const statusRes = await fetch(`${API_BASE}/auth/status`, {
+          credentials: 'include'  // SECURITY: Include cookies in request
+        });
         const statusData = await statusRes.json();
         setAuthEnabled(statusData.enabled);
 
@@ -26,25 +28,16 @@ export function AuthProvider({ children }) {
           return;
         }
 
-        // Check for existing token
-        const token = localStorage.getItem('authToken');
-        if (token) {
-          const verifyRes = await fetch(`${API_BASE}/auth/verify`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
-          });
+        // SECURITY: Verify session using HttpOnly cookie (no localStorage)
+        const verifyRes = await fetch(`${API_BASE}/auth/verify`, {
+          method: 'POST',
+          credentials: 'include'  // SECURITY: Include cookies in request
+        });
 
-          if (verifyRes.ok) {
-            const data = await verifyRes.json();
-            if (data.success) {
-              setUser(data.user);
-            } else {
-              localStorage.removeItem('authToken');
-            }
-          } else {
-            localStorage.removeItem('authToken');
+        if (verifyRes.ok) {
+          const data = await verifyRes.json();
+          if (data.success) {
+            setUser(data.user);
           }
         }
       } catch (error) {
@@ -64,13 +57,14 @@ export function AuthProvider({ children }) {
         headers: {
           'Content-Type': 'application/json'
         },
+        credentials: 'include',  // SECURITY: Allow server to set HttpOnly cookie
         body: JSON.stringify({ username, password })
       });
 
       const data = await response.json();
 
       if (data.success) {
-        localStorage.setItem('authToken', data.token);
+        // SECURITY: Token is now in HttpOnly cookie, not in response
         setUser(data.user);
         return { success: true };
       } else {
@@ -89,20 +83,17 @@ export function AuthProvider({ children }) {
     }
 
     try {
-      const token = localStorage.getItem('authToken');
+      // SECURITY: Server will clear HttpOnly cookie
       await fetch(`${API_BASE}/auth/logout`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        credentials: 'include'
       });
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
-      localStorage.removeItem('authToken');
       setUser(null);
 
-      // Show message if logged out due to inactivity
+      // Show message if logged out due to inactivity (this is safe in localStorage)
       if (reason === 'timeout') {
         localStorage.setItem('logoutReason', 'timeout');
       }
@@ -146,11 +137,7 @@ export function AuthProvider({ children }) {
     };
   }, [user, authEnabled, updateActivity]);
 
-  const getAuthHeader = () => {
-    const token = localStorage.getItem('authToken');
-    return token ? { 'Authorization': `Bearer ${token}` } : {};
-  };
-
+  // SECURITY: No longer exposing getAuthHeader - cookies are automatic
   return (
     <AuthContext.Provider value={{
       user,
@@ -158,7 +145,6 @@ export function AuthProvider({ children }) {
       authEnabled,
       login,
       logout,
-      getAuthHeader,
       isAuthenticated: !authEnabled || !!user
     }}>
       {children}

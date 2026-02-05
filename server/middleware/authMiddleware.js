@@ -13,16 +13,15 @@ export function authenticateToken(req, res, next) {
     return next();
   }
 
-  const authHeader = req.headers.authorization;
+  // SECURITY: Read token from HttpOnly cookie instead of Authorization header
+  const token = req.cookies?.authToken;
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (!token) {
     return res.status(401).json({
       success: false,
       message: 'Acceso no autorizado. Por favor inicia sesión.'
     });
   }
-
-  const token = authHeader.split(' ')[1];
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);

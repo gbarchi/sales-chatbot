@@ -62,8 +62,8 @@ export async function handleChat(req, res) {
           console.error('SQL Error in multi-query:', sqlError);
           results.push({
             error: true,
-            message: `Error ejecutando consulta: ${sqlError.message}`,
-            sql: queryItem.sql
+            message: 'Error ejecutando la consulta'
+            // SECURITY: Don't expose SQL in error responses
           });
         }
       }
@@ -86,8 +86,8 @@ export async function handleChat(req, res) {
       console.error('SQL Error:', sqlError);
       return res.json({
         type: 'error',
-        message: `Error ejecutando la consulta: ${sqlError.message}`,
-        sql: llmResponse.sql
+        message: 'Error ejecutando la consulta. Por favor intenta reformular tu pregunta.'
+        // SECURITY: Don't expose SQL or error details in responses
       });
     }
 
