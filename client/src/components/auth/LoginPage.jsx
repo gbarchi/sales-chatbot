@@ -42,7 +42,8 @@ function LoginPage() {
               <path d="M7 14l4-4 4 4 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </div>
-          <h1>Maviju Salesbot</h1>
+          <img src="/logo-maviju.png" alt="Maviju" height="50" style={{ marginBottom: '8px' }} />
+          <h1>Salesbot</h1>
           <p>Inicia sesión para continuar</p>
         </div>
 

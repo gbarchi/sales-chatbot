@@ -10,7 +10,8 @@ function Layout({ children, user, onLogout, onAdminClick }) {
               <path d="M3 3V21H21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
               <path d="M7 14L11 10L15 14L21 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
-            <span>Maviju Salesbot</span>
+            <img src="/logo-maviju.png" alt="Maviju" height="24" style={{ background: 'white', padding: '4px 8px', borderRadius: '4px' }} />
+            <span>Salesbot</span>
           </div>
           <div className="header-right">
             {user && (
