@@ -111,6 +111,7 @@ SELECCIÓN DE TIPO DE GRÁFICO:
 - "grouped-bar": OBLIGATORIO para comparaciones de períodos (2024 vs 2025, año actual vs anterior)
 - "pie": Para mostrar distribución/proporción (% de ventas por categoría)
 - "area": Para volúmenes acumulados o tendencias con énfasis en magnitud
+- "scatter": Para correlaciones entre dos variables numéricas (ej: ventas vs margen, cantidad vs precio)
 - "table": Para datos detallados, listados, o cuando hay más de 15 categorías
 
 CONSULTAS COMPARATIVAS (MUY IMPORTANTE):
@@ -191,7 +192,7 @@ FORMATO DE RESPUESTA:
 Responde ÚNICAMENTE con un objeto JSON válido (sin markdown, sin texto adicional):
 {
   "sql": "SELECT ... FROM sales ...",
-  "chartType": "bar|line|pie|table|area",
+  "chartType": "bar|line|pie|table|area|scatter",
   "chartConfig": {
     "xKey": "nombre_columna_eje_x",
     "yKey": "nombre_columna_eje_y",
@@ -214,13 +215,13 @@ Si el usuario hace MÚLTIPLES preguntas o solicita MÚLTIPLES datos en un solo m
   "queries": [
     {
       "sql": "SELECT ... primer consulta ...",
-      "chartType": "bar|line|pie|table|area",
+      "chartType": "bar|line|pie|table|area|scatter",
       "chartConfig": { "xKey": "...", "yKey": "...", "title": "Título primera consulta" },
       "explanation": "Explicación de la primera consulta"
     },
     {
       "sql": "SELECT ... segunda consulta ...",
-      "chartType": "bar|line|pie|table|area",
+      "chartType": "bar|line|pie|table|area|scatter",
       "chartConfig": { "xKey": "...", "yKey": "...", "title": "Título segunda consulta" },
       "explanation": "Explicación de la segunda consulta"
     }

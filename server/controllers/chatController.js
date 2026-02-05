@@ -2,6 +2,17 @@ import dataService from '../services/dataService.js';
 import llmService from '../services/llmService.js';
 import { userService } from '../services/userService.js';
 
+// Helper to save query to history
+function saveToHistory(userId, query) {
+  try {
+    if (userId && query) {
+      userService.saveQueryHistory(userId, query);
+    }
+  } catch (error) {
+    console.error('Error saving to history:', error);
+  }
+}
+
 export async function handleChat(req, res) {
   try {
     const { query, conversationHistory = [], dateFilter = null } = req.body;
@@ -57,6 +68,9 @@ export async function handleChat(req, res) {
         }
       }
 
+      // Save to history on successful multi-query
+      saveToHistory(req.user?.id, query);
+
       return res.json({
         type: 'multi',
         results,
@@ -82,6 +96,9 @@ export async function handleChat(req, res) {
     if (data && data.length > 0) {
       analysis = await llmService.analyzeResults(query, data, llmResponse.chartConfig);
     }
+
+    // Save to history on successful query
+    saveToHistory(req.user?.id, query);
 
     // Format response
     res.json({

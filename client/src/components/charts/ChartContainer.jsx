@@ -4,6 +4,7 @@ import {
   LineChart, Line,
   PieChart, Pie, Cell,
   AreaChart, Area,
+  ScatterChart, Scatter, ZAxis,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   LabelList, ReferenceLine
 } from 'recharts';
@@ -359,6 +360,77 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
                 fillOpacity={0.3}
               />
             </AreaChart>
+          </ResponsiveContainer>
+        );
+
+      case 'scatter':
+        // For scatter plots, we need xKey, yKey, and optionally a zKey for bubble size
+        const zKey = chartConfig?.zKey || null;
+        // Find a label key (usually NombreVendedor or similar text field)
+        const labelKey = chartConfig?.labelKey || Object.keys(data[0]).find(k =>
+          typeof data[0][k] === 'string' && k !== xKey && k !== yKey
+        );
+
+        // Custom tooltip for scatter
+        const ScatterTooltip = ({ active, payload }) => {
+          if (active && payload && payload.length) {
+            const point = payload[0].payload;
+            return (
+              <div style={{
+                background: 'white',
+                padding: '10px 14px',
+                border: '1px solid #e0e0e0',
+                borderRadius: '8px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
+              }}>
+                {labelKey && <div style={{ fontWeight: 600, marginBottom: 6 }}>{point[labelKey]}</div>}
+                <div style={{ fontSize: 13, color: '#666' }}>
+                  {xKey.replace(/_/g, ' ')}: <strong>{formatValue(point[xKey])}</strong>
+                </div>
+                <div style={{ fontSize: 13, color: '#666' }}>
+                  {yKey.replace(/_/g, ' ')}: <strong>{formatValue(point[yKey])}</strong>
+                </div>
+                {zKey && (
+                  <div style={{ fontSize: 13, color: '#666' }}>
+                    {zKey.replace(/_/g, ' ')}: <strong>{formatValue(point[zKey])}</strong>
+                  </div>
+                )}
+              </div>
+            );
+          }
+          return null;
+        };
+
+        return (
+          <ResponsiveContainer width="100%" height={400}>
+            <ScatterChart margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+              <XAxis
+                dataKey={xKey}
+                name={xKey.replace(/_/g, ' ')}
+                type="number"
+                tickFormatter={formatValue}
+                tick={{ fontSize: 11 }}
+                label={{ value: xKey.replace(/_/g, ' '), position: 'bottom', offset: 40, fontSize: 12 }}
+              />
+              <YAxis
+                dataKey={yKey}
+                name={yKey.replace(/_/g, ' ')}
+                type="number"
+                tickFormatter={formatValue}
+                tick={{ fontSize: 11 }}
+                label={{ value: yKey.replace(/_/g, ' '), angle: -90, position: 'insideLeft', offset: 10, fontSize: 12 }}
+              />
+              {zKey && <ZAxis dataKey={zKey} range={[50, 400]} name={zKey} />}
+              <Tooltip content={<ScatterTooltip />} />
+              <Legend />
+              <Scatter
+                name={title}
+                data={data}
+                fill="#dc2626"
+                shape="circle"
+              />
+            </ScatterChart>
           </ResponsiveContainer>
         );
 

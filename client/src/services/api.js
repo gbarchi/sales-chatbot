@@ -165,3 +165,46 @@ export async function fetchSupervisors() {
 
   return response.json();
 }
+
+// ========== Query History API Functions ==========
+
+export async function fetchQueryHistory(limit = 50) {
+  const response = await fetch(`${API_BASE}/history?limit=${limit}`, {
+    headers: getAuthHeaders()
+  });
+
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || 'Error fetching history');
+  }
+
+  return response.json();
+}
+
+export async function deleteHistoryItem(id) {
+  const response = await fetch(`${API_BASE}/history/${id}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders()
+  });
+
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || 'Error deleting history item');
+  }
+
+  return response.json();
+}
+
+export async function clearQueryHistory() {
+  const response = await fetch(`${API_BASE}/history`, {
+    method: 'DELETE',
+    headers: getAuthHeaders()
+  });
+
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || 'Error clearing history');
+  }
+
+  return response.json();
+}

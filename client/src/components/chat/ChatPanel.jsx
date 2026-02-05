@@ -1,12 +1,14 @@
-import React, { useRef, useEffect, useCallback } from 'react';
+import React, { useRef, useEffect, useCallback, useState } from 'react';
 import ChatMessage from './ChatMessage';
 import ChatInput from './ChatInput';
+import QueryHistoryModal from './QueryHistoryModal';
 import DateFilter from '../common/DateFilter';
 import { sendChatMessage } from '../../services/api';
 
 function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSuggestionClick, isLoading, setIsLoading, dateFilter, onDateFilterChange, dateRange }) {
   const messagesEndRef = useRef(null);
   const abortControllerRef = useRef(null);
+  const [showHistory, setShowHistory] = useState(false);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -143,7 +145,17 @@ function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSugge
         activeFilter={dateFilter}
         onFilterChange={onDateFilterChange}
       />
-      <ChatInput onSend={handleSendMessage} disabled={isLoading} />
+      <ChatInput
+        onSend={handleSendMessage}
+        disabled={isLoading}
+        onHistoryClick={() => setShowHistory(true)}
+      />
+
+      <QueryHistoryModal
+        isOpen={showHistory}
+        onClose={() => setShowHistory(false)}
+        onSelectQuery={handleSendMessage}
+      />
 
       <style>{`
         .chat-panel {

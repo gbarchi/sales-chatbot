@@ -35,6 +35,20 @@ class UserService {
     // Create index on username
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)');
 
+    // Create query history table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS query_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        query_text TEXT NOT NULL,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+
+    // Create index for efficient history queries
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_history_user ON query_history(user_id, timestamp DESC)');
+
     // Insert default admin if no users exist
     const userCount = this.db.prepare('SELECT COUNT(*) as count FROM users').get();
     if (userCount.count === 0) {
@@ -195,6 +209,52 @@ class UserService {
       default:
         return { filter: null, description: null };
     }
+  }
+
+  // Save query to history
+  saveQueryHistory(userId, queryText) {
+    // Don't save empty or very short queries
+    if (!queryText || queryText.trim().length < 3) {
+      return null;
+    }
+
+    const result = this.db.prepare(`
+      INSERT INTO query_history (user_id, query_text)
+      VALUES (?, ?)
+    `).run(userId, queryText.trim());
+
+    return result.lastInsertRowid;
+  }
+
+  // Get query history for a user
+  getQueryHistory(userId, limit = 50) {
+    return this.db.prepare(`
+      SELECT id, query_text, timestamp
+      FROM query_history
+      WHERE user_id = ?
+      ORDER BY timestamp DESC
+      LIMIT ?
+    `).all(userId, limit);
+  }
+
+  // Delete a query from history
+  deleteQueryHistory(userId, historyId) {
+    const result = this.db.prepare(`
+      DELETE FROM query_history
+      WHERE id = ? AND user_id = ?
+    `).run(historyId, userId);
+
+    return result.changes > 0;
+  }
+
+  // Clear all history for a user
+  clearQueryHistory(userId) {
+    const result = this.db.prepare(`
+      DELETE FROM query_history
+      WHERE user_id = ?
+    `).run(userId);
+
+    return result.changes;
   }
 }
 

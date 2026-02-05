@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { handleChat, getMetadata, getSuggestedQueries } from './controllers/chatController.js';
+import { getHistory, deleteHistory, clearHistory } from './controllers/historyController.js';
 import {
   login, verifyToken, logout,
   getUsers, createUser, updateUser, updatePassword, deleteUser,
@@ -70,6 +71,11 @@ app.get('/api/admin/supervisors', authenticateToken, getAvailableSupervisors);
 app.post('/api/chat', authenticateToken, handleChat);
 app.get('/api/metadata', authenticateToken, getMetadata);
 app.get('/api/suggestions', authenticateToken, getSuggestedQueries);
+
+// Query history routes
+app.get('/api/history', authenticateToken, getHistory);
+app.delete('/api/history/:id', authenticateToken, deleteHistory);
+app.delete('/api/history', authenticateToken, clearHistory);
 
 // Health check (public)
 app.get('/api/health', (req, res) => {
