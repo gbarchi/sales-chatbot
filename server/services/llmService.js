@@ -265,7 +265,7 @@ Ejemplo 2 - Ventas por día y mes:
 Ejemplo 3 - PORCENTAJES en heatmap (distribución por vendedor y mes):
 Cuando el usuario pida "porcentaje", "distribución", "participación" o "qué porcentaje representa cada mes":
 {
-  "sql": "WITH totales_vendedor AS (SELECT NombreVendedor, SUM(LineTotal) as total FROM sales GROUP BY NombreVendedor) SELECT DATE_TRUNC('month', s.Fecha) as Mes, s.NombreVendedor as Vendedor, ROUND(SUM(s.LineTotal) * 100.0 / t.total, 1) as Porcentaje FROM sales s JOIN totales_vendedor t ON s.NombreVendedor = t.NombreVendedor GROUP BY DATE_TRUNC('month', s.Fecha), s.NombreVendedor, t.total ORDER BY s.NombreVendedor, Mes LIMIT 100",
+  "sql": "WITH totales_vendedor AS (SELECT NombreVendedor, SUM(LineTotal) as total FROM sales GROUP BY NombreVendedor) SELECT DATE_TRUNC('month', s.Fecha) as Mes, s.NombreVendedor as Vendedor, ROUND(SUM(s.LineTotal) * 100.0 / t.total, 1) as Porcentaje FROM sales s JOIN totales_vendedor t ON s.NombreVendedor = t.NombreVendedor GROUP BY DATE_TRUNC('month', s.Fecha), s.NombreVendedor, t.total ORDER BY Vendedor, Mes LIMIT 500",
   "chartType": "heatmap",
   "chartConfig": {
     "xKey": "Mes",
@@ -275,7 +275,8 @@ Cuando el usuario pida "porcentaje", "distribución", "participación" o "qué p
   }
 }
 
-IMPORTANTE para porcentajes en heatmap:
+IMPORTANTE para heatmaps:
+- Para heatmaps usa LIMIT 500 (no 100) para asegurar que todos los datos aparezcan
 - Usa CTE (WITH) para calcular el total por la dimensión que debe sumar 100%
 - El porcentaje debe calcularse como: valor * 100.0 / total_de_referencia
 - Redondea a 1 decimal con ROUND(..., 1)

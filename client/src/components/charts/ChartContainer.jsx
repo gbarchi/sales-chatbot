@@ -703,12 +703,15 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
         };
 
         // Format value for display (handle percentages)
-        const formatHeatmapValue = (val) => {
+        // Detect if values are percentages based on column name or value range
+        const isPercentageColumn = valueKey?.toLowerCase().includes('porcentaje') ||
+                                   valueKey?.toLowerCase().includes('percent') ||
+                                   valueKey?.toLowerCase().includes('margen');
+
+        const formatHeatmapValue = (val, maxVal) => {
           if (typeof val === 'number') {
-            if (val < 1 && val > 0) {
-              return `${(val * 100).toFixed(0)}%`;
-            }
-            if (val >= 1 && val <= 100) {
+            // If column name suggests percentages or max value is <= 100, treat as percentage
+            if (isPercentageColumn || maxVal <= 100) {
               return `${val.toFixed(0)}%`;
             }
             return formatValue(val);
@@ -730,20 +733,27 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
 
         // Color scale function (blue to red through white)
         const getHeatmapColor = (value) => {
-          if (maxValue === minValue) return '#f0f0f0';
+          if (maxValue === minValue) return { color: '#f0f0f0', r: 240, g: 240, b: 240 };
           const ratio = (value - minValue) / (maxValue - minValue);
+          let r, g, b;
           // Blue (low) -> White (mid) -> Red (high)
           if (ratio < 0.5) {
-            const r = Math.round(59 + (255 - 59) * (ratio * 2));
-            const g = Math.round(130 + (255 - 130) * (ratio * 2));
-            const b = Math.round(246 + (255 - 246) * (ratio * 2));
-            return `rgb(${r},${g},${b})`;
+            r = Math.round(59 + (255 - 59) * (ratio * 2));
+            g = Math.round(130 + (255 - 130) * (ratio * 2));
+            b = Math.round(246 + (255 - 246) * (ratio * 2));
           } else {
-            const r = Math.round(255 - (255 - 220) * ((ratio - 0.5) * 2));
-            const g = Math.round(255 - (255 - 38) * ((ratio - 0.5) * 2));
-            const b = Math.round(255 - (255 - 38) * ((ratio - 0.5) * 2));
-            return `rgb(${r},${g},${b})`;
+            r = Math.round(255 - (255 - 220) * ((ratio - 0.5) * 2));
+            g = Math.round(255 - (255 - 38) * ((ratio - 0.5) * 2));
+            b = Math.round(255 - (255 - 38) * ((ratio - 0.5) * 2));
           }
+          return { color: `rgb(${r},${g},${b})`, r, g, b };
+        };
+
+        // Calculate perceived brightness (0-255) to determine text color
+        const getTextColor = (r, g, b) => {
+          // Using perceived luminance formula
+          const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+          return brightness > 160 ? '#333' : '#fff';
         };
 
         const cellWidth = Math.max(50, Math.min(80, 700 / xValues.length));
@@ -786,6 +796,8 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
                   {xValues.map((xVal, xi) => {
                     const key = `${xVal}-${yVal}`;
                     const value = valueMap[key] || 0;
+                    const cellColor = getHeatmapColor(value);
+                    const textColor = getTextColor(cellColor.r, cellColor.g, cellColor.b);
                     return (
                       <g key={`cell-${xi}-${yi}`}>
                         <rect
@@ -793,7 +805,7 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
                           y={marginTop + yi * cellHeight}
                           width={cellWidth - 2}
                           height={cellHeight - 2}
-                          fill={getHeatmapColor(value)}
+                          fill={cellColor.color}
                           rx={4}
                           stroke="#fff"
                           strokeWidth={1}
@@ -807,10 +819,10 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
                           y={marginTop + yi * cellHeight + cellHeight / 2 + 4}
                           textAnchor="middle"
                           fontSize={10}
-                          fill={value > (minValue + maxValue) / 2 ? '#fff' : '#333'}
-                          fontWeight="500"
+                          fill={textColor}
+                          fontWeight="600"
                         >
-                          {formatHeatmapValue(value)}
+                          {formatHeatmapValue(value, maxValue)}
                         </text>
                       </g>
                     );
@@ -842,7 +854,7 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
                 fontSize={10}
                 fill="#666"
               >
-                {formatHeatmapValue(maxValue)}
+                {formatHeatmapValue(maxValue, maxValue)}
               </text>
               <text
                 x={marginLeft + xValues.length * cellWidth + 45}
@@ -850,7 +862,7 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
                 fontSize={10}
                 fill="#666"
               >
-                {formatHeatmapValue(minValue)}
+                {formatHeatmapValue(minValue, maxValue)}
               </text>
             </svg>
           </div>

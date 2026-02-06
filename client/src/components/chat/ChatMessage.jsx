@@ -168,7 +168,8 @@ function ChatMessage({ message }) {
         .inline-chart {
           margin-top: 16px;
           border-radius: 12px;
-          overflow: hidden;
+          overflow-x: auto;
+          overflow-y: hidden;
           border: 1px solid var(--border-color);
           background: white;
         }
