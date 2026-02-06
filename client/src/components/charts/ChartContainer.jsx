@@ -113,21 +113,26 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
     }
 
     // Check if data has two numeric columns (one for bars, one for line)
-    // Force combo regardless of what LLM returned when we detect margin-like data
-    if (data[0]) {
-      const numericCols = Object.keys(data[0]).filter(k =>
-        k !== xKey && typeof data[0][k] === 'number'
-      );
-      const hasMargenColumn = numericCols.some(k =>
-        k.toLowerCase().includes('margen') ||
-        k.toLowerCase().includes('margin') ||
-        k.toLowerCase().includes('promedio') ||
-        k.toLowerCase().includes('_pct')
-      );
-      // If we have a margin-like column + another numeric column, use combo
-      if (hasMargenColumn && numericCols.length >= 2) {
-        console.log('Forcing combo: found margin column with multiple metrics', numericCols);
-        return 'combo';
+    // Only force combo for time-series data (1 dimension + multiple metrics)
+    // Do NOT force combo if there are multiple text columns (that needs a table)
+    if (data[0] && chartType !== 'table') {
+      const cols = Object.keys(data[0]);
+      const stringCols = cols.filter(k => typeof data[0][k] === 'string');
+      const numericCols = cols.filter(k => typeof data[0][k] === 'number');
+
+      // Only force combo if there's just 1 text column (the dimension) and 2+ numeric
+      // If there are 2+ text columns, it's likely detailed data that needs a table
+      if (stringCols.length <= 1 && numericCols.length >= 2) {
+        const hasMargenColumn = numericCols.some(k =>
+          k.toLowerCase().includes('margen') ||
+          k.toLowerCase().includes('margin') ||
+          k.toLowerCase().includes('promedio') ||
+          k.toLowerCase().includes('_pct')
+        );
+        if (hasMargenColumn) {
+          console.log('Forcing combo: found margin column with single dimension', numericCols);
+          return 'combo';
+        }
       }
     }
 
@@ -672,8 +677,44 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
         console.log('Heatmap keys:', { heatmapXKey, heatmapYKey, valueKey });
 
         // Get unique values for x and y axes
-        const xValues = [...new Set(data.map(d => d[heatmapXKey]))];
+        let xValues = [...new Set(data.map(d => d[heatmapXKey]))];
         const yValues = [...new Set(data.map(d => d[heatmapYKey]))];
+
+        // Sort xValues - if they look like dates, sort chronologically
+        const looksLikeDates = xValues.some(v => String(v).match(/^\d{4}-\d{2}/));
+        if (looksLikeDates) {
+          xValues.sort((a, b) => new Date(a) - new Date(b));
+        } else {
+          xValues.sort();
+        }
+
+        // Format month names for display
+        const formatXLabel = (val) => {
+          const strVal = String(val);
+          // Match YYYY-MM format and parse manually to avoid timezone issues
+          const match = strVal.match(/^(\d{4})-(\d{2})/);
+          if (match) {
+            const year = match[1];
+            const monthIndex = parseInt(match[2], 10) - 1; // Convert to 0-based index
+            const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+            return `${months[monthIndex]} ${year.slice(-2)}`;
+          }
+          return strVal.length > 10 ? strVal.substring(0, 8) + '...' : val;
+        };
+
+        // Format value for display (handle percentages)
+        const formatHeatmapValue = (val) => {
+          if (typeof val === 'number') {
+            if (val < 1 && val > 0) {
+              return `${(val * 100).toFixed(0)}%`;
+            }
+            if (val >= 1 && val <= 100) {
+              return `${val.toFixed(0)}%`;
+            }
+            return formatValue(val);
+          }
+          return val;
+        };
 
         // Create a lookup map for values
         const valueMap = {};
@@ -726,7 +767,7 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
                   fontSize={11}
                   fill="#666"
                 >
-                  {String(xVal).length > 10 ? String(xVal).substring(0, 8) + '...' : xVal}
+                  {formatXLabel(xVal)}
                 </text>
               ))}
 
@@ -769,7 +810,7 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
                           fill={value > (minValue + maxValue) / 2 ? '#fff' : '#333'}
                           fontWeight="500"
                         >
-                          {formatValue(value)}
+                          {formatHeatmapValue(value)}
                         </text>
                       </g>
                     );
@@ -777,38 +818,39 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
                 </g>
               ))}
 
-              {/* Legend */}
+              {/* Legend - vertical gradient from top (high/red) to bottom (low/blue) */}
               <defs>
-                <linearGradient id="heatmapGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#3b82f6" />
+                <linearGradient id="heatmapGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" stopColor="#dc2626" />
                   <stop offset="50%" stopColor="#ffffff" />
-                  <stop offset="100%" stopColor="#dc2626" />
+                  <stop offset="100%" stopColor="#3b82f6" />
                 </linearGradient>
               </defs>
               <rect
                 x={marginLeft + xValues.length * cellWidth + 20}
                 y={marginTop}
                 width={20}
-                height={yValues.length * cellHeight}
+                height={Math.min(yValues.length * cellHeight, 150)}
                 fill="url(#heatmapGradient)"
                 rx={4}
-                transform={`rotate(90, ${marginLeft + xValues.length * cellWidth + 30}, ${marginTop + yValues.length * cellHeight / 2})`}
+                stroke="#e5e7eb"
+                strokeWidth={1}
               />
               <text
                 x={marginLeft + xValues.length * cellWidth + 45}
-                y={marginTop + 10}
+                y={marginTop + 12}
                 fontSize={10}
                 fill="#666"
               >
-                {formatValue(maxValue)}
+                {formatHeatmapValue(maxValue)}
               </text>
               <text
                 x={marginLeft + xValues.length * cellWidth + 45}
-                y={marginTop + yValues.length * cellHeight - 5}
+                y={marginTop + Math.min(yValues.length * cellHeight, 150) - 2}
                 fontSize={10}
                 fill="#666"
               >
-                {formatValue(minValue)}
+                {formatHeatmapValue(minValue)}
               </text>
             </svg>
           </div>

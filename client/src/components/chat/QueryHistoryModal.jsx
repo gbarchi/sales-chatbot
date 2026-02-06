@@ -384,27 +384,22 @@ function QueryHistoryModal({ isOpen, onClose, onSelectQuery }) {
           flex: 1;
           min-width: 0;
           display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 12px;
+          flex-direction: column;
+          gap: 6px;
         }
 
         .item-text {
           flex: 1;
           font-size: 14px;
           color: var(--text-primary);
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
+          line-height: 1.4;
+          word-break: break-word;
         }
 
         .item-time {
-          font-size: 12px;
+          font-size: 11px;
           color: var(--text-secondary);
-          flex-shrink: 0;
-          background: #e5e7eb;
-          padding: 2px 8px;
-          border-radius: 4px;
+          align-self: flex-start;
         }
 
         .delete-button {

@@ -262,6 +262,25 @@ Ejemplo 2 - Ventas por día y mes:
   }
 }
 
+Ejemplo 3 - PORCENTAJES en heatmap (distribución por vendedor y mes):
+Cuando el usuario pida "porcentaje", "distribución", "participación" o "qué porcentaje representa cada mes":
+{
+  "sql": "WITH totales_vendedor AS (SELECT NombreVendedor, SUM(LineTotal) as total FROM sales GROUP BY NombreVendedor) SELECT DATE_TRUNC('month', s.Fecha) as Mes, s.NombreVendedor as Vendedor, ROUND(SUM(s.LineTotal) * 100.0 / t.total, 1) as Porcentaje FROM sales s JOIN totales_vendedor t ON s.NombreVendedor = t.NombreVendedor GROUP BY DATE_TRUNC('month', s.Fecha), s.NombreVendedor, t.total ORDER BY s.NombreVendedor, Mes LIMIT 100",
+  "chartType": "heatmap",
+  "chartConfig": {
+    "xKey": "Mes",
+    "yKey": "Vendedor",
+    "valueKey": "Porcentaje",
+    "title": "Heatmap: Distribución % de Ventas por Vendedor y Mes"
+  }
+}
+
+IMPORTANTE para porcentajes en heatmap:
+- Usa CTE (WITH) para calcular el total por la dimensión que debe sumar 100%
+- El porcentaje debe calcularse como: valor * 100.0 / total_de_referencia
+- Redondea a 1 decimal con ROUND(..., 1)
+- El resultado debe ser un número entre 0 y 100 (NO decimales como 0.15)
+
 Si la pregunta no puede responderse con los datos disponibles o no es clara:
 {
   "error": "Explicación del problema",
