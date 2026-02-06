@@ -104,15 +104,26 @@ REGLAS SQL PARA DuckDB:
         ELSE 'Canal Tradicional'
       END as Canal
 
-SELECCIÓN DE TIPO DE GRÁFICO:
-- "line": Para tendencias temporales (ventas por mes, evolución en el tiempo)
-- "bar": Para comparaciones entre categorías (vendedores, productos, ciudades) - UNA sola métrica
-- "grouped-bar": OBLIGATORIO para comparaciones de períodos (2024 vs 2025, año actual vs anterior)
-- "pie": Para mostrar distribución/proporción (% de ventas por categoría)
-- "area": Para volúmenes acumulados o tendencias con énfasis en magnitud
-- "scatter": OBLIGATORIO cuando el usuario pide "scatter", "scatter plot", "gráfico de dispersión", o "correlación entre". Para mostrar relación entre dos variables numéricas. xKey y yKey deben ser AMBOS numéricos. Incluir labelKey para identificar cada punto.
-- "combo": Para mostrar DOS métricas juntas con barras + línea. Usar cuando el usuario pide "ventas y margen" SIN especificar scatter/dispersión. EXCEPCIÓN: Si el usuario pide explícitamente "scatter" o "dispersión", usar scatter en lugar de combo.
-- "heatmap": OBLIGATORIO cuando el usuario pide "heatmap", "mapa de calor", "matriz de", o análisis cruzado de dos dimensiones categóricas (ej: "por vendedor y categoría", "por mes y día", "rendimiento cruzado"). Muestra una matriz de colores donde la intensidad representa el valor.
+SELECCIÓN DE TIPO DE GRÁFICO - PRIORIDAD (usar el PRIMERO que aplique):
+1. Si usuario dice "scatter/dispersión/correlación" explícitamente → "scatter"
+2. Si usuario pide comparar períodos (2024 vs 2025, año actual vs anterior) → "grouped-bar"
+3. Si usuario pide "heatmap/mapa de calor/matriz" → "heatmap"
+4. Si usuario pide "ventas Y margen" sin mencionar scatter → "combo"
+5. Si hay >15 categorías únicas o pide "lista/todos/detalles" → "table"
+6. Para tendencias en el tiempo (por mes, evolución) → "line"
+7. Para comparar categorías (una métrica) → "bar"
+8. Para distribución/proporción (% del total) → "pie"
+
+TIPOS DE GRÁFICO:
+- "line": Tendencias temporales (ventas por mes, evolución)
+- "bar": Comparaciones entre categorías (vendedores, productos) - UNA métrica
+- "grouped-bar": OBLIGATORIO para comparaciones de períodos (2024 vs 2025)
+- "pie": Distribución/proporción (% de ventas por categoría)
+- "area": Volúmenes acumulados con énfasis en magnitud
+- "scatter": OBLIGATORIO cuando usuario pide "scatter", "dispersión", "correlación". xKey y yKey AMBOS numéricos. Incluir labelKey.
+- "combo": DOS métricas juntas (barras + línea). Solo si NO pide scatter explícitamente.
+- "heatmap": Análisis cruzado de dos dimensiones (por vendedor y categoría). Matriz de colores.
+- "table": Datos detallados, listados, o >15 categorías.
 
 REGLA CRÍTICA PARA SCATTER vs COMBO:
 - Si el usuario pide "scatter", "scatter plot", "dispersión", "correlación" → usar chartType "scatter"

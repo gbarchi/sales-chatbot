@@ -88,18 +88,9 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
       return 'heatmap';
     }
 
-    // FORCE COMBO if title mentions both metrics
-    // BUT respect scatter plot if LLM explicitly chose it
-    if (chartType !== 'scatter') {
-      const comboKeywords = ['y margen', 'con margen', 'y promedio', 'ventas y margen', 'sales and margin'];
-      if (comboKeywords.some(kw => titleLower.includes(kw))) {
-        console.log('Forcing combo based on title keyword');
-        return 'combo';
-      }
-    }
-
     // Check for "por X y Y" pattern suggesting matrix/heatmap
-    if (/por\s+\w+\s+y\s+(categoria|categoría|vendedor|mes|producto|marca)/i.test(title)) {
+    // Only convert to heatmap if LLM returned 'table' (don't override other chart types)
+    if (chartType === 'table' && /por\s+\w+\s+y\s+(categoria|categoría|vendedor|mes|producto|marca)/i.test(title)) {
       // Check if data has the right structure for heatmap
       if (data[0]) {
         const cols = Object.keys(data[0]);
@@ -116,10 +107,9 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
     }
 
     // Check if data has two numeric columns (one for bars, one for line)
-    // Only force combo for time-series data (1 dimension + multiple metrics)
-    // Do NOT force combo if there are multiple text columns (that needs a table)
-    // Do NOT force combo if scatter was explicitly requested
-    if (data[0] && chartType !== 'table' && chartType !== 'scatter') {
+    // Only upgrade bar/line to combo when margin column detected
+    // Do NOT force combo for scatter, table, pie, or other explicit chart types
+    if (data[0] && (chartType === 'bar' || chartType === 'line')) {
       const cols = Object.keys(data[0]);
       const stringCols = cols.filter(k => typeof data[0][k] === 'string');
       const numericCols = cols.filter(k => typeof data[0][k] === 'number');
@@ -257,7 +247,7 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
                   }
                   return [formattedValue, name.replace(/_/g, ' ')];
                 }}
-                labelFormatter={(label) => label}
+                labelFormatter={formatXAxis}
               />
               <Legend formatter={(value) => value.replace(/_/g, ' ')} />
               {comparisonKeys.map((key, index) => (
@@ -347,6 +337,7 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
                     }
                     return [formattedValue, name.replace(/_/g, ' ')];
                   }}
+                  labelFormatter={formatXAxis}
                 />
                 <Legend formatter={(value) => value.replace(/_/g, ' ')} />
                 {keysToShow.map((key, index) => (
@@ -384,7 +375,7 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
                 interval={0}
               />
               <YAxis tickFormatter={formatValue} tick={{ fontSize: 12 }} />
-              <Tooltip formatter={formatValue} />
+              <Tooltip formatter={formatValue} labelFormatter={formatXAxis} />
               <Legend />
               <Bar
                 dataKey={yKey}
@@ -455,6 +446,29 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
         );
 
       case 'scatter':
+        // Validate that xKey and yKey are numeric for scatter plots
+        const xIsNumeric = data[0] && typeof data[0][xKey] === 'number';
+        const yIsNumeric = data[0] && typeof data[0][yKey] === 'number';
+
+        if (!xIsNumeric || !yIsNumeric) {
+          return (
+            <div style={{
+              padding: '20px',
+              background: '#fef2f2',
+              borderRadius: '8px',
+              color: '#991b1b',
+              textAlign: 'center'
+            }}>
+              <strong>Error en Scatter Plot:</strong> Se requieren dos columnas numéricas.
+              <br />
+              <span style={{ fontSize: '12px', color: '#666' }}>
+                xKey ({xKey}): {typeof data[0]?.[xKey]} |
+                yKey ({yKey}): {typeof data[0]?.[yKey]}
+              </span>
+            </div>
+          );
+        }
+
         // For scatter plots, we need xKey, yKey, and optionally a zKey for bubble size
         const zKey = chartConfig?.zKey || null;
         // Find a label key (usually NombreVendedor or similar text field)
@@ -637,6 +651,7 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
                                      name.toLowerCase().includes('_pct');
                     return [isPercent ? formatPercentage(value) : formatValue(value), name.replace(/_/g, ' ')];
                   }}
+                  labelFormatter={formatXAxis}
                 />
                 <Legend formatter={(value) => value.replace(/_/g, ' ')} />
                 {barKey && (
