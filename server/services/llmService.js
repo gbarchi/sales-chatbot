@@ -409,11 +409,11 @@ DATOS OBTENIDOS (${totalRows} filas${totalRows > 50 ? ', mostrando las primeras 
 ${JSON.stringify(dataPreview, null, 2)}
 
 ${stats ? `ESTADÍSTICAS CALCULADAS:
-- Promedio: ${stats.mean.toLocaleString('es-ES', {maximumFractionDigits: 2})}
-- Mediana: ${stats.median.toLocaleString('es-ES', {maximumFractionDigits: 2})}
-- Desviación estándar: ${stats.stdDev.toLocaleString('es-ES', {maximumFractionDigits: 2})}
-- Mínimo: ${stats.min.toLocaleString('es-ES', {maximumFractionDigits: 2})}
-- Máximo: ${stats.max.toLocaleString('es-ES', {maximumFractionDigits: 2})}
+- Promedio: ${stats.mean.toLocaleString('es-ES', { maximumFractionDigits: 2 })}
+- Mediana: ${stats.median.toLocaleString('es-ES', { maximumFractionDigits: 2 })}
+- Desviación estándar: ${stats.stdDev.toLocaleString('es-ES', { maximumFractionDigits: 2 })}
+- Mínimo: ${stats.min.toLocaleString('es-ES', { maximumFractionDigits: 2 })}
+- Máximo: ${stats.max.toLocaleString('es-ES', { maximumFractionDigits: 2 })}
 - Valores > 2 desviaciones del promedio son potenciales anomalías` : ''}
 
 CONFIGURACIÓN DEL GRÁFICO:
@@ -448,7 +448,7 @@ REGLAS:
 Responde SOLO con el texto del análisis.`;
 
       const response = await this.client.messages.create({
-        model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
+        model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
         max_tokens: 500,
         messages: [{ role: 'user', content: analysisPrompt }]
       });
@@ -488,7 +488,7 @@ Responde SOLO con el texto del análisis.`;
       messages.push({ role: 'user', content: userQuery });
 
       const response = await this.client.messages.create({
-        model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
+        model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
         max_tokens: 1500,
         messages: messages,
         system: this.getSystemPrompt(metadata, dateFilter, userFilter)
