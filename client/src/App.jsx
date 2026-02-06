@@ -20,62 +20,83 @@ function App() {
     // Only load data when authenticated
     if (!isAuthenticated) return;
 
-    const loadInitialData = async () => {
-      try {
-        const [suggestionsData, metadataData] = await Promise.all([
-          fetchSuggestions(),
-          fetchMetadata()
-        ]);
-        setSuggestions(suggestionsData.queries || []);
-        setMetadata(metadataData);
+    let cancelled = false;
 
-        // Set current year as default filter (or max year available in data)
-        const currentYear = new Date().getFullYear();
-        const dataMaxYear = metadataData.dateRange?.max
-          ? new Date(metadataData.dateRange.max).getFullYear()
-          : currentYear;
-        const defaultYear = Math.min(currentYear, dataMaxYear);
-        console.log('Setting default year filter:', defaultYear, 'current:', currentYear, 'dataMax:', dataMaxYear);
+    const loadInitialData = async (retries = 3) => {
+      for (let attempt = 0; attempt <= retries; attempt++) {
+        if (cancelled) return;
 
-        setDateFilter({
-          id: `year-${defaultYear}`,
-          label: `${defaultYear}`,
-          range: {
-            start: new Date(defaultYear, 0, 1),
-            end: new Date(defaultYear, 11, 31)
+        try {
+          const [suggestionsData, metadataData] = await Promise.all([
+            fetchSuggestions(),
+            fetchMetadata()
+          ]);
+
+          if (cancelled) return;
+
+          setSuggestions(suggestionsData.queries || []);
+          setMetadata(metadataData);
+
+          // Set current year as default filter (or max year available in data)
+          const currentYear = new Date().getFullYear();
+          const dataMaxYear = metadataData.dateRange?.max
+            ? new Date(metadataData.dateRange.max).getFullYear()
+            : currentYear;
+          const defaultYear = Math.min(currentYear, dataMaxYear);
+          console.log('Setting default year filter:', defaultYear, 'current:', currentYear, 'dataMax:', dataMaxYear);
+
+          setDateFilter({
+            id: `year-${defaultYear}`,
+            label: `${defaultYear}`,
+            range: {
+              start: new Date(defaultYear, 0, 1),
+              end: new Date(defaultYear, 11, 31)
+            }
+          });
+
+          // Add welcome message
+          setMessages([{
+            id: 1,
+            type: 'bot',
+            content: `¡Hola ${user?.name || 'Usuario'}! Soy tu asistente de análisis de ventas. Tengo acceso a ${metadataData.rowCount?.toLocaleString() || 'millones de'} registros de ventas desde ${metadataData.dateRange?.min?.split('T')[0] || '2021'} hasta ${metadataData.dateRange?.max?.split('T')[0] || '2024'}.\n\n¿En qué puedo ayudarte? Puedes preguntarme cosas como:\n• "Muéstrame las ventas por mes"\n• "¿Quiénes son los top 10 vendedores?"\n• "Ventas por categoría de producto"`,
+            timestamp: new Date()
+          }]);
+          return; // Success — exit retry loop
+        } catch (error) {
+          console.error(`Error loading initial data (attempt ${attempt + 1}/${retries + 1}):`, error);
+
+          if (attempt < retries && !cancelled) {
+            // Wait before retrying: 1s, 2s, 4s
+            await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
+            continue;
           }
-        });
 
-        // Add welcome message
-        setMessages([{
-          id: 1,
-          type: 'bot',
-          content: `¡Hola ${user?.name || 'Usuario'}! Soy tu asistente de análisis de ventas. Tengo acceso a ${metadataData.rowCount?.toLocaleString() || 'millones de'} registros de ventas desde ${metadataData.dateRange?.min?.split('T')[0] || '2021'} hasta ${metadataData.dateRange?.max?.split('T')[0] || '2024'}.\n\n¿En qué puedo ayudarte? Puedes preguntarme cosas como:\n• "Muéstrame las ventas por mes"\n• "¿Quiénes son los top 10 vendedores?"\n• "Ventas por categoría de producto"`,
-          timestamp: new Date()
-        }]);
-      } catch (error) {
-        console.error('Error loading initial data:', error);
-        // Still set default year filter even on error
-        const currentYear = new Date().getFullYear();
-        setDateFilter({
-          id: `year-${currentYear}`,
-          label: `${currentYear}`,
-          range: {
-            start: new Date(currentYear, 0, 1),
-            end: new Date(currentYear, 11, 31)
-          }
-        });
-        setMessages([{
-          id: 1,
-          type: 'bot',
-          content: 'Error conectando con el servidor. Por favor, asegúrate de que el servidor esté ejecutándose.',
-          timestamp: new Date(),
-          isError: true
-        }]);
+          if (cancelled) return;
+
+          // All retries exhausted
+          const currentYear = new Date().getFullYear();
+          setDateFilter({
+            id: `year-${currentYear}`,
+            label: `${currentYear}`,
+            range: {
+              start: new Date(currentYear, 0, 1),
+              end: new Date(currentYear, 11, 31)
+            }
+          });
+          setMessages([{
+            id: 1,
+            type: 'bot',
+            content: 'Error conectando con el servidor. Por favor, asegúrate de que el servidor esté ejecutándose.',
+            timestamp: new Date(),
+            isError: true
+          }]);
+        }
       }
     };
 
     loadInitialData();
+
+    return () => { cancelled = true; };
   }, [isAuthenticated]);
 
   // Show loading while checking auth

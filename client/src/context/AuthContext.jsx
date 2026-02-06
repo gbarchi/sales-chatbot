@@ -14,11 +14,14 @@ export function AuthProvider({ children }) {
 
   // Check auth status and verify token on mount
   useEffect(() => {
+    const abortController = new AbortController();
+
     const checkAuth = async () => {
       try {
         // First check if auth is enabled
         const statusRes = await fetch(`${API_BASE}/auth/status`, {
-          credentials: 'include'  // SECURITY: Include cookies in request
+          credentials: 'include',
+          signal: abortController.signal
         });
         const statusData = await statusRes.json();
         setAuthEnabled(statusData.enabled);
@@ -31,7 +34,8 @@ export function AuthProvider({ children }) {
         // SECURITY: Verify session using HttpOnly cookie (no localStorage)
         const verifyRes = await fetch(`${API_BASE}/auth/verify`, {
           method: 'POST',
-          credentials: 'include'  // SECURITY: Include cookies in request
+          credentials: 'include',
+          signal: abortController.signal
         });
 
         if (verifyRes.ok) {
@@ -41,13 +45,19 @@ export function AuthProvider({ children }) {
           }
         }
       } catch (error) {
-        console.error('Auth check error:', error);
+        if (error.name !== 'AbortError') {
+          console.error('Auth check error:', error);
+        }
       } finally {
-        setLoading(false);
+        if (!abortController.signal.aborted) {
+          setLoading(false);
+        }
       }
     };
 
     checkAuth();
+
+    return () => abortController.abort();
   }, []);
 
   const login = async (username, password) => {

@@ -14,11 +14,26 @@ function saveToHistory(userId, query) {
 }
 
 export async function handleChat(req, res) {
+  // Track if client disconnected (e.g., Ctrl+R refresh)
+  let clientDisconnected = false;
+  req.on('close', () => {
+    clientDisconnected = true;
+  });
+
+  const safeSend = (data, status = 200) => {
+    if (clientDisconnected || res.headersSent) return;
+    try {
+      res.status(status).json(data);
+    } catch (e) {
+      console.error('Error sending response (client likely disconnected):', e.message);
+    }
+  };
+
   try {
     const { query, conversationHistory = [], dateFilter = null } = req.body;
 
     if (!query || typeof query !== 'string') {
-      return res.status(400).json({ error: 'Query is required' });
+      return safeSend({ error: 'Query is required' }, 400);
     }
 
     // Get user's filter context based on their role
@@ -29,9 +44,10 @@ export async function handleChat(req, res) {
 
     // Process query with LLM (including conversation history, date filter, and user filter for context)
     const llmResponse = await llmService.processQuery(query, metadata, conversationHistory, dateFilter, userFilter);
+    if (clientDisconnected) return;
 
     if (llmResponse.error) {
-      return res.json({
+      return safeSend({
         type: 'error',
         message: llmResponse.error,
         suggestion: llmResponse.suggestion
@@ -43,8 +59,10 @@ export async function handleChat(req, res) {
       const results = [];
 
       for (const queryItem of llmResponse.queries) {
+        if (clientDisconnected) break;
         try {
           const data = await dataService.executeQuery(queryItem.sql);
+          if (clientDisconnected) break;
           const analysis = data && data.length > 0
             ? await llmService.analyzeResults(query, data, queryItem.chartConfig)
             : null;
@@ -63,15 +81,14 @@ export async function handleChat(req, res) {
           results.push({
             error: true,
             message: 'Error ejecutando la consulta'
-            // SECURITY: Don't expose SQL in error responses
           });
         }
       }
 
-      // Save to history on successful multi-query
+      if (clientDisconnected) return;
       saveToHistory(req.user?.id, query);
 
-      return res.json({
+      return safeSend({
         type: 'multi',
         results,
         totalQueries: results.length
@@ -84,12 +101,13 @@ export async function handleChat(req, res) {
       data = await dataService.executeQuery(llmResponse.sql);
     } catch (sqlError) {
       console.error('SQL Error:', sqlError);
-      return res.json({
+      return safeSend({
         type: 'error',
         message: 'Error ejecutando la consulta. Por favor intenta reformular tu pregunta.'
-        // SECURITY: Don't expose SQL or error details in responses
       });
     }
+
+    if (clientDisconnected) return;
 
     // Analyze the results
     let analysis = null;
@@ -97,11 +115,13 @@ export async function handleChat(req, res) {
       analysis = await llmService.analyzeResults(query, data, llmResponse.chartConfig);
     }
 
+    if (clientDisconnected) return;
+
     // Save to history on successful query
     saveToHistory(req.user?.id, query);
 
     // Format response
-    res.json({
+    safeSend({
       type: 'success',
       data: data,
       chartType: llmResponse.chartType,
@@ -114,11 +134,11 @@ export async function handleChat(req, res) {
 
   } catch (error) {
     console.error('Chat Error:', error);
-    res.status(500).json({
+    safeSend({
       type: 'error',
       message: 'Error interno del servidor',
       details: error.message
-    });
+    }, 500);
   }
 }
 

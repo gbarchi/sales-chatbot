@@ -36,21 +36,30 @@ app.use(express.json());
 // Rate limiting (simple implementation)
 const rateLimit = new Map();
 const RATE_LIMIT_WINDOW = 60000; // 1 minute
-const RATE_LIMIT_MAX = 30; // 30 requests per minute
+const RATE_LIMIT_MAX_CHAT = 30; // 30 chat requests per minute (LLM calls)
+const RATE_LIMIT_MAX_GENERAL = 120; // 120 general requests per minute (allows rapid refresh)
 
 app.use((req, res, next) => {
+  // Skip rate limiting for health checks and auth status (lightweight)
+  if (req.path === '/api/health' || req.path === '/api/auth/status') {
+    return next();
+  }
+
   const ip = req.ip;
   const now = Date.now();
+  const isChatRoute = req.path === '/api/chat';
+  const limitKey = `${ip}:${isChatRoute ? 'chat' : 'general'}`;
+  const maxRequests = isChatRoute ? RATE_LIMIT_MAX_CHAT : RATE_LIMIT_MAX_GENERAL;
 
-  if (!rateLimit.has(ip)) {
-    rateLimit.set(ip, { count: 1, start: now });
+  if (!rateLimit.has(limitKey)) {
+    rateLimit.set(limitKey, { count: 1, start: now });
   } else {
-    const data = rateLimit.get(ip);
+    const data = rateLimit.get(limitKey);
     if (now - data.start > RATE_LIMIT_WINDOW) {
-      rateLimit.set(ip, { count: 1, start: now });
+      rateLimit.set(limitKey, { count: 1, start: now });
     } else {
       data.count++;
-      if (data.count > RATE_LIMIT_MAX) {
+      if (data.count > maxRequests) {
         return res.status(429).json({ error: 'Too many requests' });
       }
     }
@@ -86,6 +95,23 @@ app.delete('/api/history', authenticateToken, clearHistory);
 // Health check (public)
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', initialized: dataService.initialized });
+});
+
+// Global error handlers to prevent server crashes
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error.message);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled Rejection:', reason?.message || reason);
+});
+
+// Express error handler for write-after-close and other middleware errors
+app.use((err, req, res, next) => {
+  console.error('Express Error:', err.message);
+  if (!res.headersSent) {
+    res.status(500).json({ type: 'error', message: 'Error interno del servidor' });
+  }
 });
 
 // Initialize and start server
