@@ -9,6 +9,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   LabelList, ReferenceLine, Rectangle
 } from 'recharts';
+import { ResponsiveHeatMap } from '@nivo/heatmap';
 import DataTable from './DataTable';
 import { useAuth } from '../../context/AuthContext';
 
@@ -38,9 +39,18 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
 
   const formatValue = (value) => {
     if (typeof value === 'number') {
+      const isWholeNumber = value % 1 === 0;
+      if (isWholeNumber) {
+        if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+        if (value >= 1000) return `${(value / 1000).toFixed(1)}K`;
+        return value.toLocaleString('es-ES', { maximumFractionDigits: 0 });
+      }
       if (value >= 1000000) return `$${(value / 1000000).toFixed(1)}M`;
       if (value >= 1000) return `$${(value / 1000).toFixed(1)}K`;
       return value.toFixed(2);
+    }
+    if (typeof value === 'bigint') {
+      return Number(value).toLocaleString('es-ES', { maximumFractionDigits: 0 });
     }
     return value;
   };
@@ -680,26 +690,32 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
           </div>
         );
 
-      case 'heatmap':
-        // Heatmap for showing intensity across two categorical dimensions
-        // Auto-detect keys from data structure if not provided in chartConfig
+      case 'heatmap': {
+        // Auto-detect keys from data structure
         const heatmapCols = Object.keys(data[0]);
         const heatmapStringCols = heatmapCols.filter(k => typeof data[0][k] === 'string');
         const heatmapNumericCols = heatmapCols.filter(k => typeof data[0][k] === 'number');
 
-        // Determine xKey, yKey, valueKey - prefer chartConfig, fallback to auto-detect
-        const heatmapXKey = chartConfig?.xKey || heatmapStringCols[0] || xKey;
-        const heatmapYKey = chartConfig?.yKey || heatmapStringCols[1] || yKey;
+        const isStringCol = (key) => key && data[0] && typeof data[0][key] === 'string';
+        const heatmapXKey = (isStringCol(chartConfig?.xKey) ? chartConfig.xKey : null) || heatmapStringCols[0] || xKey;
+        const heatmapYKey = (isStringCol(chartConfig?.yKey) ? chartConfig.yKey : null) ||
+          heatmapStringCols.find(k => k !== heatmapXKey) || heatmapStringCols[1] || yKey;
         const valueKey = chartConfig?.valueKey || heatmapNumericCols[0] ||
           heatmapCols.find(k => k !== heatmapXKey && k !== heatmapYKey && typeof data[0][k] === 'number');
 
-        console.log('Heatmap keys:', { heatmapXKey, heatmapYKey, valueKey });
+        // Detect if values are percentages
+        const isPercentageColumn = valueKey?.toLowerCase().includes('porcentaje') ||
+                                   valueKey?.toLowerCase().includes('percent') ||
+                                   valueKey?.toLowerCase().includes('margen');
 
-        // Get unique values for x and y axes
+        // Check if all values are whole numbers
+        const allWholeNumbers = data.every(d => {
+          const v = Number(d[valueKey]);
+          return !isNaN(v) && Math.abs(v - Math.round(v)) < 0.01;
+        });
+
+        // Get unique column values (x-axis of heatmap)
         let xValues = [...new Set(data.map(d => d[heatmapXKey]))];
-        const yValues = [...new Set(data.map(d => d[heatmapYKey]))];
-
-        // Sort xValues - if they look like dates, sort chronologically
         const looksLikeDates = xValues.some(v => String(v).match(/^\d{4}-\d{2}/));
         if (looksLikeDates) {
           xValues.sort((a, b) => new Date(a) - new Date(b));
@@ -707,185 +723,99 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
           xValues.sort();
         }
 
-        // Format month names for display
+        // Format date labels
         const formatXLabel = (val) => {
           const strVal = String(val);
-          // Match YYYY-MM format and parse manually to avoid timezone issues
           const match = strVal.match(/^(\d{4})-(\d{2})/);
           if (match) {
-            const year = match[1];
-            const monthIndex = parseInt(match[2], 10) - 1; // Convert to 0-based index
             const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-            return `${months[monthIndex]} ${year.slice(-2)}`;
+            return `${months[parseInt(match[2], 10) - 1]} ${match[1].slice(-2)}`;
           }
-          return strVal.length > 10 ? strVal.substring(0, 8) + '...' : val;
+          return strVal;
         };
 
-        // Format value for display (handle percentages)
-        // Detect if values are percentages based on column name or value range
-        const isPercentageColumn = valueKey?.toLowerCase().includes('porcentaje') ||
-                                   valueKey?.toLowerCase().includes('percent') ||
-                                   valueKey?.toLowerCase().includes('margen');
-
-        const formatHeatmapValue = (val, maxVal) => {
-          if (typeof val === 'number') {
-            // If column name suggests percentages or max value is <= 100, treat as percentage
-            if (isPercentageColumn || maxVal <= 100) {
-              return `${val.toFixed(0)}%`;
-            }
-            return formatValue(val);
-          }
-          return val;
-        };
-
-        // Create a lookup map for values
+        // Build lookup map for values
+        const SEP = '\0';
         const valueMap = {};
-        let minValue = Infinity;
-        let maxValue = -Infinity;
         data.forEach(d => {
-          const key = `${d[heatmapXKey]}-${d[heatmapYKey]}`;
-          const val = d[valueKey] || 0;
-          valueMap[key] = val;
-          minValue = Math.min(minValue, val);
-          maxValue = Math.max(maxValue, val);
+          const key = `${d[heatmapYKey]}${SEP}${d[heatmapXKey]}`;
+          valueMap[key] = Number(d[valueKey]) || 0;
         });
 
-        // Color scale function (blue to red through white)
-        const getHeatmapColor = (value) => {
-          if (maxValue === minValue) return { color: '#f0f0f0', r: 240, g: 240, b: 240 };
-          const ratio = (value - minValue) / (maxValue - minValue);
-          let r, g, b;
-          // Blue (low) -> White (mid) -> Red (high)
-          if (ratio < 0.5) {
-            r = Math.round(59 + (255 - 59) * (ratio * 2));
-            g = Math.round(130 + (255 - 130) * (ratio * 2));
-            b = Math.round(246 + (255 - 246) * (ratio * 2));
-          } else {
-            r = Math.round(255 - (255 - 220) * ((ratio - 0.5) * 2));
-            g = Math.round(255 - (255 - 38) * ((ratio - 0.5) * 2));
-            b = Math.round(255 - (255 - 38) * ((ratio - 0.5) * 2));
-          }
-          return { color: `rgb(${r},${g},${b})`, r, g, b };
-        };
+        // Transform data into nivo format: array of { id: rowLabel, data: [{ x: colLabel, y: value }] }
+        const yValues = [...new Set(data.map(d => d[heatmapYKey]))].sort();
+        const nivoData = yValues.map(yVal => ({
+          id: String(yVal),
+          data: xValues.map(xVal => ({
+            x: formatXLabel(xVal),
+            y: Math.round(Number(valueMap[`${yVal}${SEP}${xVal}`] || 0))
+          }))
+        }));
 
-        // Calculate perceived brightness (0-255) to determine text color
-        const getTextColor = (r, g, b) => {
-          // Using perceived luminance formula
-          const brightness = (r * 299 + g * 587 + b * 114) / 1000;
-          return brightness > 160 ? '#333' : '#fff';
-        };
-
-        const cellWidth = Math.max(50, Math.min(80, 700 / xValues.length));
-        const cellHeight = 35;
-        const marginLeft = 120;
-        const marginTop = 40;
+        const heatmapHeight = Math.max(400, yValues.length * 40 + 120);
 
         return (
-          <div style={{ overflowX: 'auto' }}>
-            <svg
-              width={Math.max(600, marginLeft + xValues.length * cellWidth + 100)}
-              height={marginTop + yValues.length * cellHeight + 60}
-            >
-              {/* X axis labels */}
-              {xValues.map((xVal, xi) => (
-                <text
-                  key={`x-${xi}`}
-                  x={marginLeft + xi * cellWidth + cellWidth / 2}
-                  y={marginTop - 10}
-                  textAnchor="middle"
-                  fontSize={11}
-                  fill="#666"
-                >
-                  {formatXLabel(xVal)}
-                </text>
-              ))}
-
-              {/* Y axis labels and cells */}
-              {yValues.map((yVal, yi) => (
-                <g key={`row-${yi}`}>
-                  <text
-                    x={marginLeft - 10}
-                    y={marginTop + yi * cellHeight + cellHeight / 2 + 4}
-                    textAnchor="end"
-                    fontSize={11}
-                    fill="#666"
-                  >
-                    {String(yVal).length > 15 ? String(yVal).substring(0, 12) + '...' : yVal}
-                  </text>
-                  {xValues.map((xVal, xi) => {
-                    const key = `${xVal}-${yVal}`;
-                    const value = valueMap[key] || 0;
-                    const cellColor = getHeatmapColor(value);
-                    const textColor = getTextColor(cellColor.r, cellColor.g, cellColor.b);
-                    return (
-                      <g key={`cell-${xi}-${yi}`}>
-                        <rect
-                          x={marginLeft + xi * cellWidth}
-                          y={marginTop + yi * cellHeight}
-                          width={cellWidth - 2}
-                          height={cellHeight - 2}
-                          fill={cellColor.color}
-                          rx={4}
-                          stroke="#fff"
-                          strokeWidth={1}
-                          style={{ cursor: 'pointer' }}
-                          onClick={() => onDrillDown && onDrillDown(heatmapXKey, xVal)}
-                        >
-                          <title>{`${yVal} - ${xVal}: ${formatValue(value)}`}</title>
-                        </rect>
-                        <text
-                          x={marginLeft + xi * cellWidth + cellWidth / 2 - 1}
-                          y={marginTop + yi * cellHeight + cellHeight / 2 + 4}
-                          textAnchor="middle"
-                          fontSize={10}
-                          fill={textColor}
-                          fontWeight="600"
-                        >
-                          {formatHeatmapValue(value, maxValue)}
-                        </text>
-                      </g>
-                    );
-                  })}
-                </g>
-              ))}
-
-              {/* Legend - vertical gradient from top (high/red) to bottom (low/blue) */}
-              <defs>
-                <linearGradient id="heatmapGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                  <stop offset="0%" stopColor="#dc2626" />
-                  <stop offset="50%" stopColor="#ffffff" />
-                  <stop offset="100%" stopColor="#3b82f6" />
-                </linearGradient>
-              </defs>
-              <rect
-                x={marginLeft + xValues.length * cellWidth + 20}
-                y={marginTop}
-                width={20}
-                height={Math.min(yValues.length * cellHeight, 150)}
-                fill="url(#heatmapGradient)"
-                rx={4}
-                stroke="#e5e7eb"
-                strokeWidth={1}
-              />
-              <text
-                x={marginLeft + xValues.length * cellWidth + 45}
-                y={marginTop + 12}
-                fontSize={10}
-                fill="#666"
-              >
-                {formatHeatmapValue(maxValue, maxValue)}
-              </text>
-              <text
-                x={marginLeft + xValues.length * cellWidth + 45}
-                y={marginTop + Math.min(yValues.length * cellHeight, 150) - 2}
-                fontSize={10}
-                fill="#666"
-              >
-                {formatHeatmapValue(minValue, maxValue)}
-              </text>
-            </svg>
+          <div style={{ height: heatmapHeight, overflowX: 'auto' }}>
+            <ResponsiveHeatMap
+              data={nivoData}
+              margin={{ top: 90, right: 60, bottom: 30, left: 140 }}
+              valueFormat={v => {
+                const numVal = Math.round(Number(v));
+                if (isPercentageColumn) return `${numVal}%`;
+                return numVal.toLocaleString('es-ES');
+              }}
+              axisTop={{
+                tickSize: 5,
+                tickPadding: 5,
+                tickRotation: -45,
+              }}
+              axisLeft={{
+                tickSize: 5,
+                tickPadding: 5,
+                tickRotation: 0,
+              }}
+              axisRight={null}
+              axisBottom={null}
+              colors={{
+                type: 'diverging',
+                scheme: 'red_yellow_blue',
+                divergeAt: 0.5,
+                minValue: 0,
+                maxValue: Math.max(...nivoData.flatMap(d => d.data.map(c => c.y))),
+              }}
+              emptyColor="#f0f0f0"
+              borderColor="#ffffff"
+              borderWidth={2}
+              borderRadius={4}
+              labelTextColor={({ color }) => {
+                // Calculate perceived brightness from the cell color
+                const hex = color.replace('#', '');
+                const r = parseInt(hex.substring(0, 2), 16) || 128;
+                const g = parseInt(hex.substring(2, 4), 16) || 128;
+                const b = parseInt(hex.substring(4, 6), 16) || 128;
+                const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+                return brightness > 160 ? '#333333' : '#ffffff';
+              }}
+              tooltip={({ cell }) => (
+                <div style={{
+                  background: 'white',
+                  padding: '8px 12px',
+                  borderRadius: 6,
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                  fontSize: 13,
+                }}>
+                  <strong>{cell.serieId}</strong> - {cell.data.x}<br />
+                  {allWholeNumbers ? Math.round(cell.value).toLocaleString('es-ES') : cell.value}
+                  {isPercentageColumn ? '%' : ''}
+                </div>
+              )}
+              onClick={(cell) => onDrillDown && onDrillDown(heatmapXKey, cell.data.x)}
+              hoverTarget="cell"
+              animate={false}
+            />
           </div>
         );
+      }
 
       case 'table':
       default:

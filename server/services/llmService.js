@@ -72,7 +72,7 @@ REGLAS SQL PARA DuckDB:
    - Excluye registros donde LineTotal <= 0: WHERE LineTotal > 0
 4. Para contar documentos/facturas únicos: COUNT(DISTINCT DocNum)
 5. Para contar líneas/items: CAST(COUNT(*) AS INTEGER)
-6. Limita resultados con LIMIT (máximo 100 filas)
+6. Limita resultados con LIMIT (máximo 100 filas). EXCEPCIÓN: para heatmaps usar LIMIT 500 ya que necesitan todas las combinaciones de las dos dimensiones
 7. Para agrupar por mes: DATE_TRUNC('month', Fecha)
 8. Para agrupar por año: YEAR(Fecha)
 9. Para agrupar por semana: DATE_TRUNC('week', Fecha)
@@ -284,7 +284,7 @@ Cuando el usuario pida "heatmap", "mapa de calor", o análisis "por X y Categor�
 
 Ejemplo 1 - Rendimiento por vendedor y categoría:
 {
-  "sql": "SELECT NombreVendedor as Vendedor, Familia as Categoria, SUM(LineTotal) as Ventas FROM sales GROUP BY NombreVendedor, Familia HAVING Ventas > 1000 ORDER BY Ventas DESC LIMIT 100",
+  "sql": "SELECT NombreVendedor as Vendedor, Familia as Categoria, SUM(LineTotal) as Ventas FROM sales GROUP BY NombreVendedor, Familia ORDER BY Vendedor, Categoria",
   "chartType": "heatmap",
   "chartConfig": {
     "xKey": "Categoria",
@@ -293,6 +293,10 @@ Ejemplo 1 - Rendimiento por vendedor y categoría:
     "title": "Heatmap: Ventas por Vendedor y Categoría"
   }
 }
+IMPORTANTE para heatmaps:
+- NO uses HAVING para filtrar combinaciones con valores bajos — el heatmap necesita TODAS las combinaciones
+- NO uses LIMIT 100 — usa LIMIT 500 para no truncar la matriz
+- Si quieres limitar vendedores, usa un subquery: WHERE NombreVendedor IN (SELECT NombreVendedor FROM sales GROUP BY NombreVendedor ORDER BY SUM(LineTotal) DESC LIMIT 20)
 
 Ejemplo 2 - Ventas por día y mes:
 {

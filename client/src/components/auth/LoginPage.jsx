@@ -105,7 +105,7 @@ function LoginPage() {
 
         <div className="login-footer">
           <p>Sistema de análisis de ventas</p>
-          <p className="version">v{packageJson.version}</p>
+          <p className="version">v{packageJson.version} | Claude Haiku 4.5</p>
         </div>
       </div>
 
