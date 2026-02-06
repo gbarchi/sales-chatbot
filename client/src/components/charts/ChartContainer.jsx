@@ -743,7 +743,13 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
         });
 
         // Transform data into nivo format: array of { id: rowLabel, data: [{ x: colLabel, y: value }] }
-        const yValues = [...new Set(data.map(d => d[heatmapYKey]))].sort();
+        // Sort rows by total value descending (not alphabetically)
+        const yValuesUnsorted = [...new Set(data.map(d => d[heatmapYKey]))];
+        const yTotals = {};
+        yValuesUnsorted.forEach(yVal => {
+          yTotals[yVal] = xValues.reduce((sum, xVal) => sum + (Number(valueMap[`${yVal}${SEP}${xVal}`]) || 0), 0);
+        });
+        const yValues = yValuesUnsorted.sort((a, b) => yTotals[b] - yTotals[a]);
         const nivoData = yValues.map(yVal => ({
           id: String(yVal),
           data: xValues.map(xVal => ({
