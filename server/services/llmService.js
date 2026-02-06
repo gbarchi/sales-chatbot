@@ -110,15 +110,23 @@ SELECCIÓN DE TIPO DE GRÁFICO:
 - "grouped-bar": OBLIGATORIO para comparaciones de períodos (2024 vs 2025, año actual vs anterior)
 - "pie": Para mostrar distribución/proporción (% de ventas por categoría)
 - "area": Para volúmenes acumulados o tendencias con énfasis en magnitud
-- "scatter": Para correlaciones entre dos variables numéricas (ej: ventas vs margen, cantidad vs precio)
-- "combo": OBLIGATORIO cuando el usuario pide DOS métricas juntas (ej: "ventas y margen", "cantidad y precio", "total y promedio"). Muestra barras (métrica principal) + línea (métrica secundaria). SIEMPRE que el usuario mencione "y margen", "y promedio", "con margen" → usa combo.
+- "scatter": OBLIGATORIO cuando el usuario pide "scatter", "scatter plot", "gráfico de dispersión", o "correlación entre". Para mostrar relación entre dos variables numéricas. xKey y yKey deben ser AMBOS numéricos. Incluir labelKey para identificar cada punto.
+- "combo": Para mostrar DOS métricas juntas con barras + línea. Usar cuando el usuario pide "ventas y margen" SIN especificar scatter/dispersión. EXCEPCIÓN: Si el usuario pide explícitamente "scatter" o "dispersión", usar scatter en lugar de combo.
 - "heatmap": OBLIGATORIO cuando el usuario pide "heatmap", "mapa de calor", "matriz de", o análisis cruzado de dos dimensiones categóricas (ej: "por vendedor y categoría", "por mes y día", "rendimiento cruzado"). Muestra una matriz de colores donde la intensidad representa el valor.
 
-REGLA CRÍTICA PARA COMBO:
-Cuando el usuario pida "ventas y margen", "ventas con margen", "ventas + margen", o similar:
-1. chartType DEBE ser "combo" (NO "line", NO "bar")
+REGLA CRÍTICA PARA SCATTER vs COMBO:
+- Si el usuario pide "scatter", "scatter plot", "dispersión", "correlación" → usar chartType "scatter"
+- Si el usuario pide "ventas y margen" SIN mencionar scatter → usar chartType "combo"
+
+Cuando uses COMBO:
+1. chartType = "combo"
 2. SQL DEBE incluir ambas columnas: SUM(LineTotal) as Total_Ventas, ROUND((SUM(LineTotal) - SUM(LineCost)) / NULLIF(SUM(LineTotal), 0) * 100, 2) as Margen
 3. chartConfig DEBE tener barKey Y lineKey
+
+Cuando uses SCATTER:
+1. chartType = "scatter"
+2. SQL DEBE incluir: columna identificadora (texto) + DOS columnas numéricas
+3. chartConfig DEBE tener xKey (numérico), yKey (numérico), labelKey (texto)
 - "table": Para datos detallados, listados, o cuando hay más de 15 categorías
 
 CONSULTAS COMPARATIVAS (MUY IMPORTANTE):
@@ -231,6 +239,31 @@ IMPORTANTE para combo:
 - barKey = columna para las BARRAS (eje izquierdo, normalmente ventas/cantidad)
 - lineKey = columna para la LÍNEA (eje derecho, normalmente margen/porcentaje)
 - AMBAS columnas deben existir en el SELECT del SQL
+
+CONFIGURACIÓN ESPECIAL PARA SCATTER CHART (MUY IMPORTANTE):
+El scatter plot muestra la RELACIÓN/CORRELACIÓN entre dos variables numéricas. REQUIERE:
+1. El SQL DEBE incluir: una columna de identificación (ej: NombreVendedor) + DOS columnas numéricas
+2. chartConfig DEBE especificar xKey (numérico), yKey (numérico), y labelKey (texto para identificar puntos)
+3. USAR cuando el usuario pide explícitamente "scatter", "scatter plot", "dispersión", o "correlación"
+
+Ejemplo scatter:
+{
+  "sql": "SELECT NombreVendedor, SUM(LineTotal) as Ventas, ROUND((SUM(LineTotal) - SUM(LineCost)) / NULLIF(SUM(LineTotal), 0) * 100, 2) as Margen FROM sales GROUP BY NombreVendedor HAVING SUM(LineTotal) > 0",
+  "chartType": "scatter",
+  "chartConfig": {
+    "xKey": "Ventas",
+    "yKey": "Margen",
+    "labelKey": "NombreVendedor",
+    "title": "Scatter Plot: Ventas vs Margen por Vendedor"
+  },
+  "explanation": "Gráfico de dispersión que muestra la correlación entre ventas totales y margen de ganancia para cada vendedor."
+}
+
+IMPORTANTE para scatter:
+- xKey = columna numérica para el eje X (ej: Ventas)
+- yKey = columna numérica para el eje Y (ej: Margen)
+- labelKey = columna de texto para identificar cada punto en el tooltip (ej: NombreVendedor)
+- NO confundir con combo: scatter muestra PUNTOS, combo muestra BARRAS + LÍNEA
 
 CONFIGURACIÓN ESPECIAL PARA HEATMAP (MUY IMPORTANTE):
 Cuando el usuario pida "heatmap", "mapa de calor", o análisis "por X y Categoría":

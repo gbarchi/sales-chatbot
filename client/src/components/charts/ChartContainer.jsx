@@ -89,10 +89,13 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
     }
 
     // FORCE COMBO if title mentions both metrics
-    const comboKeywords = ['y margen', 'con margen', 'y promedio', 'ventas y margen', 'sales and margin'];
-    if (comboKeywords.some(kw => titleLower.includes(kw))) {
-      console.log('Forcing combo based on title keyword');
-      return 'combo';
+    // BUT respect scatter plot if LLM explicitly chose it
+    if (chartType !== 'scatter') {
+      const comboKeywords = ['y margen', 'con margen', 'y promedio', 'ventas y margen', 'sales and margin'];
+      if (comboKeywords.some(kw => titleLower.includes(kw))) {
+        console.log('Forcing combo based on title keyword');
+        return 'combo';
+      }
     }
 
     // Check for "por X y Y" pattern suggesting matrix/heatmap
@@ -115,7 +118,8 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
     // Check if data has two numeric columns (one for bars, one for line)
     // Only force combo for time-series data (1 dimension + multiple metrics)
     // Do NOT force combo if there are multiple text columns (that needs a table)
-    if (data[0] && chartType !== 'table') {
+    // Do NOT force combo if scatter was explicitly requested
+    if (data[0] && chartType !== 'table' && chartType !== 'scatter') {
       const cols = Object.keys(data[0]);
       const stringCols = cols.filter(k => typeof data[0][k] === 'string');
       const numericCols = cols.filter(k => typeof data[0][k] === 'number');
