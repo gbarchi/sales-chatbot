@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import packageJson from '../../../package.json';
 
 function LoginPage() {
   const [username, setUsername] = useState('');
@@ -104,6 +105,7 @@ function LoginPage() {
 
         <div className="login-footer">
           <p>Sistema de análisis de ventas</p>
+          <p className="version">v{packageJson.version}</p>
         </div>
       </div>
 
@@ -264,6 +266,12 @@ function LoginPage() {
           font-size: 12px;
           color: var(--text-secondary);
           margin: 0;
+        }
+
+        .login-footer .version {
+          margin-top: 8px;
+          font-size: 11px;
+          color: #999;
         }
       `}</style>
     </div>
