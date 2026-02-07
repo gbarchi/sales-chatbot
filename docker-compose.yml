@@ -10,7 +10,7 @@ services:
     environment:
       - PORT=3001
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-haiku-4-5-20251001}
       - CSV_PATH=/app/data/sales.csv
       - AUTH_ENABLED=${AUTH_ENABLED:-true}
       - JWT_SECRET=${JWT_SECRET:-maviju-salesbot-secret-2024}
