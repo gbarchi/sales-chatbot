@@ -38,6 +38,7 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
   }
 
   const formatValue = (value) => {
+    if (value === null || value === undefined) return '—';
     if (typeof value === 'number') {
       const isWholeNumber = value % 1 === 0;
       if (isWholeNumber) {
@@ -197,45 +198,58 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
           </ResponsiveContainer>
         );
 
-      case 'grouped-bar':
-      case 'comparison':
-        // Grouped bar chart for comparisons (e.g., 2024 vs 2025)
-        const comparisonKeys = yKeys || Object.keys(data[0]).filter(k => k !== xKey && !k.toLowerCase().includes('crecimiento') && !k.toLowerCase().includes('growth') && !k.toLowerCase().includes('_pct'));
+      case 'comparison': {
+        // Line chart for temporal comparisons (e.g., month-by-month 2024 vs 2025)
+        const compLineKeys = yKeys || Object.keys(data[0]).filter(k => k !== xKey && typeof data[0][k] === 'number');
+        const MONTH_NAMES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
-        // Find the growth/percentage column
-        const growthKey = Object.keys(data[0]).find(k =>
-          k.toLowerCase().includes('crecimiento') ||
-          k.toLowerCase().includes('growth') ||
-          k.toLowerCase().includes('_pct')
-        );
-
-        // Custom label to show growth percentage
-        const renderGrowthLabel = (props) => {
-          const { x, y, width, index } = props;
-          const growth = data[index]?.[growthKey];
-          if (growth === null || growth === undefined || !isFinite(growth)) return null;
-
-          const isPositive = growth >= 0;
-          const color = isPositive ? '#16a34a' : '#dc2626';
-          const arrow = isPositive ? '↑' : '↓';
-
-          return (
-            <text
-              x={x + width / 2}
-              y={y - 8}
-              fill={color}
-              textAnchor="middle"
-              fontSize={10}
-              fontWeight="600"
-            >
-              {arrow}{Math.abs(growth).toFixed(1)}%
-            </text>
-          );
+        const formatCompXAxis = (value) => {
+          // If xKey is month number (1-12), show month name
+          if (typeof value === 'number' && value >= 1 && value <= 12) {
+            return MONTH_NAMES[value - 1];
+          }
+          return formatXAxis(value);
         };
 
         return (
           <ResponsiveContainer width="100%" height={400}>
-            <BarChart data={data} margin={{ top: 35, right: 30, left: 20, bottom: 100 }}>
+            <LineChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+              <XAxis
+                dataKey={xKey}
+                tickFormatter={formatCompXAxis}
+                tick={{ fontSize: 12 }}
+                interval={0}
+              />
+              <YAxis tickFormatter={formatValue} tick={{ fontSize: 12 }} />
+              <Tooltip
+                formatter={(value, name) => [formatValue(value), name.replace(/_/g, ' ')]}
+                labelFormatter={formatCompXAxis}
+              />
+              <Legend formatter={(value) => value.replace(/_/g, ' ')} />
+              {compLineKeys.map((key, index) => (
+                <Line
+                  key={key}
+                  type="monotone"
+                  dataKey={key}
+                  stroke={COMPARISON_COLORS[index % COMPARISON_COLORS.length]}
+                  strokeWidth={2}
+                  dot={{ r: 4 }}
+                  activeDot={{ r: 6 }}
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        );
+      }
+
+      case 'grouped-bar':
+        // Grouped bar chart for dimension comparisons (e.g., by province 2024 vs 2025)
+        const comparisonKeys = yKeys || Object.keys(data[0]).filter(k => k !== xKey && typeof data[0][k] === 'number');
+
+        return (
+          <ResponsiveContainer width="100%" height={400}>
+            <BarChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: 100 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
               <XAxis
                 dataKey={xKey}
@@ -248,15 +262,7 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
               />
               <YAxis tickFormatter={formatValue} tick={{ fontSize: 12 }} />
               <Tooltip
-                formatter={(value, name, props) => {
-                  const growth = props.payload?.[growthKey];
-                  const formattedValue = formatValue(value);
-                  if (growthKey && growth !== undefined && name === comparisonKeys[comparisonKeys.length - 1]) {
-                    const sign = growth >= 0 ? '+' : '';
-                    return [`${formattedValue} (${sign}${growth.toFixed(1)}%)`, name.replace(/_/g, ' ')];
-                  }
-                  return [formattedValue, name.replace(/_/g, ' ')];
-                }}
+                formatter={(value, name) => [formatValue(value), name.replace(/_/g, ' ')]}
                 labelFormatter={formatXAxis}
               />
               <Legend formatter={(value) => value.replace(/_/g, ' ')} />
@@ -268,12 +274,7 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
                   radius={[4, 4, 0, 0]}
                   onClick={(d) => onDrillDown && onDrillDown(xKey, d[xKey])}
                   style={{ cursor: onDrillDown ? 'pointer' : 'default' }}
-                >
-                  {/* Show growth label only on the last bar (most recent year) */}
-                  {index === comparisonKeys.length - 1 && growthKey && (
-                    <LabelList content={renderGrowthLabel} />
-                  )}
-                </Bar>
+                />
               ))}
             </BarChart>
           </ResponsiveContainer>
@@ -287,45 +288,12 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
 
         // If we have multiple numeric columns that look like years or comparisons, use grouped bar
         if (numericKeys.length > 1 && (
-          numericKeys.some(k => k.match(/2024|2025|anterior|actual/i)) ||
+          numericKeys.some(k => k.match(/2024|2025|2026|anterior|actual/i)) ||
           chartConfig?.comparison
         )) {
-          const keysToShow = numericKeys.filter(k => !k.toLowerCase().includes('crecimiento') && !k.toLowerCase().includes('growth') && !k.toLowerCase().includes('_pct'));
-
-          // Find the growth/percentage column
-          const growthKeyBar = Object.keys(data[0]).find(k =>
-            k.toLowerCase().includes('crecimiento') ||
-            k.toLowerCase().includes('growth') ||
-            k.toLowerCase().includes('_pct')
-          );
-
-          // Custom label to show growth percentage
-          const renderGrowthLabelBar = (props) => {
-            const { x, y, width, index } = props;
-            const growth = data[index]?.[growthKeyBar];
-            if (growth === null || growth === undefined || !isFinite(growth)) return null;
-
-            const isPositive = growth >= 0;
-            const color = isPositive ? '#16a34a' : '#dc2626';
-            const arrow = isPositive ? '↑' : '↓';
-
-            return (
-              <text
-                x={x + width / 2}
-                y={y - 8}
-                fill={color}
-                textAnchor="middle"
-                fontSize={10}
-                fontWeight="600"
-              >
-                {arrow}{Math.abs(growth).toFixed(1)}%
-              </text>
-            );
-          };
-
           return (
             <ResponsiveContainer width="100%" height={400}>
-              <BarChart data={data} margin={{ top: 35, right: 30, left: 20, bottom: 100 }}>
+              <BarChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: 100 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
                 <XAxis
                   dataKey={xKey}
@@ -338,19 +306,11 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
                 />
                 <YAxis tickFormatter={formatValue} tick={{ fontSize: 12 }} />
                 <Tooltip
-                  formatter={(value, name, props) => {
-                    const growth = props.payload?.[growthKeyBar];
-                    const formattedValue = formatValue(value);
-                    if (growthKeyBar && growth !== undefined && name === keysToShow[keysToShow.length - 1]) {
-                      const sign = growth >= 0 ? '+' : '';
-                      return [`${formattedValue} (${sign}${growth.toFixed(1)}%)`, name.replace(/_/g, ' ')];
-                    }
-                    return [formattedValue, name.replace(/_/g, ' ')];
-                  }}
+                  formatter={(value, name) => [formatValue(value), name.replace(/_/g, ' ')]}
                   labelFormatter={formatXAxis}
                 />
                 <Legend formatter={(value) => value.replace(/_/g, ' ')} />
-                {keysToShow.map((key, index) => (
+                {numericKeys.map((key, index) => (
                   <Bar
                     key={key}
                     dataKey={key}
@@ -358,12 +318,7 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
                     radius={[4, 4, 0, 0]}
                     onClick={(d) => onDrillDown && onDrillDown(xKey, d[xKey])}
                     style={{ cursor: onDrillDown ? 'pointer' : 'default' }}
-                  >
-                    {/* Show growth label only on the last bar (most recent year) */}
-                    {index === keysToShow.length - 1 && growthKeyBar && (
-                      <LabelList content={renderGrowthLabelBar} />
-                    )}
-                  </Bar>
+                  />
                 ))}
               </BarChart>
             </ResponsiveContainer>

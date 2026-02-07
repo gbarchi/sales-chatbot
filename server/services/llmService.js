@@ -23,8 +23,9 @@ class LLMService {
       dateFilterContext = `
 FILTRO DE FECHA ACTIVO:
 - El usuario ha seleccionado el período: ${dateFilter.label}
-- TODAS las consultas DEBEN incluir: WHERE Fecha >= '${startDate}' AND Fecha <= '${endDate}'
-- Este filtro tiene prioridad sobre cualquier otra referencia temporal en la pregunta
+- Por defecto, las consultas DEBEN incluir: WHERE Fecha >= '${startDate}' AND Fecha <= '${endDate}'
+- EXCEPCIÓN IMPORTANTE: Si el usuario pide COMPARAR períodos (ej: "vs año anterior", "comparar 2024 y 2025", "comparativo"), IGNORA este filtro de fecha y usa WHERE YEAR(Fecha) IN (año1, año2) para incluir ambos períodos completos
+- Para comparativas, usa el año del filtro activo (${new Date(dateFilter.range.start).getFullYear()}) como el año actual y el año anterior como referencia
 `;
     }
 
@@ -141,45 +142,76 @@ Cuando uses SCATTER:
 - "table": Para datos detallados, listados, o cuando hay más de 15 categorías
 
 CONSULTAS COMPARATIVAS (MUY IMPORTANTE):
-Cuando el usuario pida comparar períodos (ej: "comparar 2024 y 2025", "año actual vs anterior"):
+Cuando el usuario pida comparar períodos (ej: "comparar 2024 y 2025", "año actual vs anterior", "mes a mes"):
 
-1. ESTRUCTURA SQL para comparativos:
+HAY DOS TIPOS de comparativos:
+
+TIPO A - COMPARATIVO TEMPORAL (mes a mes, tendencia):
+Cuando comparan evolución mes a mes entre años, usa gráfico de LÍNEAS con meses como eje X.
+NO incluyas columna de crecimiento porcentual.
+
+SQL:
+   SELECT
+     MONTH(Fecha) as Mes,
+     SUM(CASE WHEN YEAR(Fecha) = 2024 THEN LineTotal ELSE 0 END) as Ventas_2024,
+     SUM(CASE WHEN YEAR(Fecha) = 2025 THEN LineTotal ELSE 0 END) as Ventas_2025
+   FROM sales
+   WHERE YEAR(Fecha) IN (2024, 2025)
+   GROUP BY MONTH(Fecha)
+   ORDER BY Mes
+
+chartType: "comparison"
+chartConfig:
+   {
+     "xKey": "Mes",
+     "yKeys": ["Ventas_2024", "Ventas_2025"],
+     "title": "Comparativo Mensual de Ventas: 2024 vs 2025"
+   }
+
+TIPO B - COMPARATIVO POR DIMENSIÓN (por vendedor, provincia, categoría):
+Cuando comparan una dimensión (vendedor, provincia, etc.) entre años, usa barras agrupadas.
+NO incluyas columna de crecimiento porcentual.
+
+SQL:
    SELECT
      dimension as Dimension,
      SUM(CASE WHEN YEAR(Fecha) = 2024 THEN LineTotal ELSE 0 END) as Ventas_2024,
-     SUM(CASE WHEN YEAR(Fecha) = 2025 THEN LineTotal ELSE 0 END) as Ventas_2025,
-     ROUND(
-       (SUM(CASE WHEN YEAR(Fecha) = 2025 THEN LineTotal ELSE 0 END) -
-        SUM(CASE WHEN YEAR(Fecha) = 2024 THEN LineTotal ELSE 0 END)) * 100.0 /
-       NULLIF(SUM(CASE WHEN YEAR(Fecha) = 2024 THEN LineTotal ELSE 0 END), 0), 1
-     ) as Crecimiento_Pct
+     SUM(CASE WHEN YEAR(Fecha) = 2025 THEN LineTotal ELSE 0 END) as Ventas_2025
    FROM sales
    WHERE YEAR(Fecha) IN (2024, 2025)
    GROUP BY dimension
    ORDER BY Ventas_2025 DESC
 
-2. USA chartType: "grouped-bar" (NO "bar" simple)
-
-3. chartConfig DEBE incluir:
+chartType: "grouped-bar"
+chartConfig:
    {
      "xKey": "Dimension",
      "yKeys": ["Ventas_2024", "Ventas_2025"],
-     "title": "Comparativo de Ventas: 2024 vs 2025"
+     "title": "Comparativo de Ventas por Dimension: 2024 vs 2025"
    }
 
-4. El campo Crecimiento_Pct se mostrará en el análisis pero no en el gráfico de barras
-
-EJEMPLO de respuesta comparativa:
+EJEMPLO de respuesta comparativa temporal (TIPO A):
 {
-  "sql": "SELECT Provincia, SUM(CASE WHEN YEAR(Fecha) = 2024 THEN LineTotal ELSE 0 END) as Ventas_2024, SUM(CASE WHEN YEAR(Fecha) = 2025 THEN LineTotal ELSE 0 END) as Ventas_2025, ROUND((SUM(CASE WHEN YEAR(Fecha) = 2025 THEN LineTotal ELSE 0 END) - SUM(CASE WHEN YEAR(Fecha) = 2024 THEN LineTotal ELSE 0 END)) * 100.0 / NULLIF(SUM(CASE WHEN YEAR(Fecha) = 2024 THEN LineTotal ELSE 0 END), 0), 1) as Crecimiento_Pct FROM sales WHERE YEAR(Fecha) IN (2024, 2025) GROUP BY Provincia ORDER BY Ventas_2025 DESC LIMIT 20",
+  "sql": "SELECT MONTH(Fecha) as Mes, SUM(CASE WHEN YEAR(Fecha) = 2024 THEN LineTotal ELSE 0 END) as Ventas_2024, SUM(CASE WHEN YEAR(Fecha) = 2025 THEN LineTotal ELSE 0 END) as Ventas_2025 FROM sales WHERE YEAR(Fecha) IN (2024, 2025) GROUP BY MONTH(Fecha) ORDER BY Mes",
+  "chartType": "comparison",
+  "chartConfig": {
+    "xKey": "Mes",
+    "yKeys": ["Ventas_2024", "Ventas_2025"],
+    "title": "Comparativo Mensual de Ventas: 2024 vs 2025"
+  },
+  "explanation": "Comparativa mes a mes de las ventas entre 2024 y 2025."
+}
+
+EJEMPLO de respuesta comparativa por dimensión (TIPO B):
+{
+  "sql": "SELECT Provincia, SUM(CASE WHEN YEAR(Fecha) = 2024 THEN LineTotal ELSE 0 END) as Ventas_2024, SUM(CASE WHEN YEAR(Fecha) = 2025 THEN LineTotal ELSE 0 END) as Ventas_2025 FROM sales WHERE YEAR(Fecha) IN (2024, 2025) GROUP BY Provincia ORDER BY Ventas_2025 DESC LIMIT 20",
   "chartType": "grouped-bar",
   "chartConfig": {
     "xKey": "Provincia",
     "yKeys": ["Ventas_2024", "Ventas_2025"],
     "title": "Comparativo de Ventas por Provincia: 2024 vs 2025"
   },
-  "explanation": "Comparativa de ventas por provincia entre 2024 y 2025, incluyendo el porcentaje de crecimiento.",
-  "analysisPrompt": "Analiza qué provincias tuvieron mayor crecimiento porcentual y cuáles decrecieron."
+  "explanation": "Comparativa de ventas por provincia entre 2024 y 2025."
 }
 
 PROYECCIONES Y TENDENCIAS FUTURAS:
