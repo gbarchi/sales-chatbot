@@ -16,8 +16,10 @@ function saveToHistory(userId, query) {
 export async function handleChat(req, res) {
   // Track if client disconnected (e.g., Ctrl+R refresh)
   let clientDisconnected = false;
-  req.on('close', () => {
-    clientDisconnected = true;
+  res.on('close', () => {
+    if (!res.writableFinished) {
+      clientDisconnected = true;
+    }
   });
 
   const safeSend = (data, status = 200) => {
