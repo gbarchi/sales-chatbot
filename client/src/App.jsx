@@ -142,6 +142,8 @@ function App() {
       botMessage.content = response.message;
       botMessage.suggestion = response.suggestion;
       botMessage.isError = true;
+    } else if (response.type === 'conversational') {
+      botMessage.content = response.message;
     } else if (response.type === 'multi') {
       // Handle multiple query results
       botMessage.content = `Encontré ${response.results.length} resultados para tu consulta.`;

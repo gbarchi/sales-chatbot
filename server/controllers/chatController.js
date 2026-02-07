@@ -56,6 +56,16 @@ export async function handleChat(req, res) {
       });
     }
 
+    // Handle CONVERSATIONAL responses (no SQL needed)
+    if (llmResponse.type === 'conversational') {
+      saveToHistory(req.user?.id, query);
+      return safeSend({
+        type: 'conversational',
+        message: llmResponse.message,
+        explanation: llmResponse.message
+      });
+    }
+
     // Handle MULTIPLE queries
     if (llmResponse.multiple && llmResponse.queries && llmResponse.queries.length > 0) {
       const results = [];
