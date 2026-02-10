@@ -206,6 +206,18 @@ class DataService {
     };
   }
 
+  // Get distinct vendedores who made sales in a specific year
+  async getVendedoresByYear(year) {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+    const safeYear = parseInt(year);
+    const result = await this.executeQuery(
+      `SELECT DISTINCT NombreVendedor FROM sales WHERE YEAR(Fecha) = ${safeYear} AND NombreVendedor IS NOT NULL ORDER BY NombreVendedor`
+    );
+    return result.map(r => r.NombreVendedor);
+  }
+
   // Get vendors list with Slpcode for admin user management
   async getVendorsList() {
     if (!this.initialized) {

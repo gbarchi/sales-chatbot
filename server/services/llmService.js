@@ -106,9 +106,50 @@ REGLAS SQL PARA DuckDB:
       END as Canal
 
 SELECCIÓN DE TIPO DE GRÁFICO - PRIORIDAD (usar el PRIMERO que aplique):
-1. Si usuario dice "scatter/dispersión/correlación" explícitamente → "scatter"
+
+🚨🚨🚨 PRIORIDAD MÁXIMA - DETECTAR SOLICITUD EXPLÍCITA 🚨🚨🚨
+
+ANTES de seleccionar el chartType, verifica si el usuario pidió EXPLÍCITAMENTE un formato específico.
+
+Si encuentras CUALQUIERA de estas frases en la pregunta del usuario:
+✓ "quiero" + ["tabla", "una tabla", "la información en una tabla", "en tabla"]
+✓ "muéstrame" + ["en tabla", "como tabla", "en una tabla"]
+✓ "dame" + ["tabla", "una tabla", "en tabla"]
+✓ "en formato de tabla"
+✓ "tabla detallada"
+✓ "detalle" o "detalle por" (ej: "detalle por cliente", "Detalle por provincia") → TABLE
+✓ "listado" o "listado de" (ej: "listado de clientes") → TABLE
+✓ "a que clientes", "a que productos", "a que provincias" (ej: "a qué clientes le vendió") → TABLE
+✓ "por cada cliente", "para cada cliente", "de cada cliente" (ej: "el margen por cada cliente") → TABLE
+✓ "cuales son los clientes", "quiénes son los clientes" → TABLE
+✓ Similar patterns para: "barras", "líneas", "pie", "heatmap", "scatter"
+
+ENTONCES debes:
+1. Usar el chartType que pidió (ej: "table")
+2. AGREGAR este campo al chartConfig: "userExplicitRequest": true
+
+📋 EJEMPLO CRÍTICO:
+Usuario dice: "Identifica los clientes... Quiero la información en una tabla"
+                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                                        ESTO es solicitud EXPLÍCITA!
+
+Tu respuesta DEBE ser:
+{
+  "sql": "SELECT CardCode, Cardname, SUM(LineTotal) as Ventas_Noviembre ...",
+  "chartType": "table",
+  "chartConfig": {
+    "xKey": "CardCode",
+    "yKey": "Ventas_Noviembre",
+    "title": "Clientes perdidos en Diciembre 2025",
+    "userExplicitRequest": true   ← ¡¡¡CRÍTICO!!!
+  },
+  "explanation": "..."
+}
+
+DESPUÉS de verificar solicitud explícita, usa esta prioridad automática:
+1. Si usuario dice "scatter/dispersión/correlación" → "scatter"
 2. Si usuario pide comparar períodos (2024 vs 2025, año actual vs anterior) → "grouped-bar"
-3. Si usuario pide "heatmap/mapa de calor/matriz" → "heatmap"
+3. Si usuario pide "heatmap/mapa de calor/matriz" (sin decir "en tabla") → "heatmap"
 4. Si usuario pide "ventas Y margen" sin mencionar scatter → "combo"
 5. Si hay >15 categorías únicas o pide "lista/todos/detalles" → "table"
 6. Para tendencias en el tiempo (por mes, evolución) → "line"
@@ -255,15 +296,20 @@ FORMATO DE RESPUESTA PARA CONSULTAS DE DATOS:
 Responde ÚNICAMENTE con un objeto JSON válido (sin markdown, sin texto adicional):
 {
   "sql": "SELECT ... FROM sales ...",
-  "chartType": "bar|line|pie|table|area|scatter|combo|heatmap",
+  "chartType": "bar|line|pie|table|area|scatter|combo|heatmap|comparison|grouped-bar",
   "chartConfig": {
     "xKey": "nombre_columna_eje_x",
     "yKey": "nombre_columna_eje_y",
-    "title": "Título descriptivo del gráfico"
+    "title": "Título descriptivo del gráfico",
+    "userExplicitRequest": true  // OPCIONAL: Incluir SOLO si usuario pidió tipo específico explícitamente
   },
   "explanation": "Explicación breve de la consulta",
   "analysisPrompt": "Instrucciones para analizar los resultados: buscar tendencias, comparar valores, identificar outliers, etc."
 }
+
+RECUERDA: Si usuario dice "en una tabla", "quiero barras", "muéstramelo en líneas", etc., SIEMPRE agrega:
+"userExplicitRequest": true
+en el chartConfig
 
 CONFIGURACIÓN ESPECIAL PARA COMBO CHART (MUY IMPORTANTE):
 El combo chart muestra BARRAS + LÍNEA. REQUIERE:

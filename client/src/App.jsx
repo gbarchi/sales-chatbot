@@ -144,6 +144,12 @@ function App() {
       botMessage.isError = true;
     } else if (response.type === 'conversational') {
       botMessage.content = response.message;
+    } else if (response.type === 'clarification') {
+      botMessage.content = response.question;
+      botMessage.isClarification = true;
+      botMessage.matches = response.matches;
+      botMessage.searchTerm = response.searchTerm;
+      botMessage.originalQuery = response.originalQuery;
     } else if (response.type === 'multi') {
       // Handle multiple query results
       botMessage.content = `Encontré ${response.results.length} resultados para tu consulta.`;

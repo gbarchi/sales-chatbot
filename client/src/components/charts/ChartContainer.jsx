@@ -90,6 +90,12 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
 
   // Determine effective chart type - override LLM decision based on title/data
   const getEffectiveChartType = () => {
+    // PRIORITY 0: If LLM detected explicit user request, NEVER override
+    if (chartConfig?.userExplicitRequest === true) {
+      console.log('Respecting user explicit request:', chartType);
+      return chartType;
+    }
+
     const titleLower = title.toLowerCase();
 
     // FORCE HEATMAP if title contains these keywords
@@ -154,8 +160,9 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
         const dim1Values = new Set(data.map(d => d[stringCols[0]]));
         const dim2Values = new Set(data.map(d => d[stringCols[1]]));
 
-        // Heatmap makes sense if both dimensions have multiple values and total cells <= 200
-        if (dim1Values.size >= 2 && dim2Values.size >= 2 && dim1Values.size * dim2Values.size <= 200) {
+        // Heatmap makes sense if BOTH dimensions have 3+ values (not for small 2x2 matrices)
+        // and total cells <= 200. This prevents small client×product matrices from forcing heatmap
+        if (dim1Values.size >= 3 && dim2Values.size >= 3 && dim1Values.size * dim2Values.size <= 200) {
           console.log('Forcing heatmap: detected matrix structure', { stringCols, dim1: dim1Values.size, dim2: dim2Values.size });
           return 'heatmap';
         }

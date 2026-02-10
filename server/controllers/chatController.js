@@ -2,6 +2,43 @@ import dataService from '../services/dataService.js';
 import llmService from '../services/llmService.js';
 import { userService } from '../services/userService.js';
 
+// Detect if a query mentions an ambiguous vendedor first name (matches multiple people)
+function detectAmbiguousVendedor(query, vendedores) {
+  const firstNameMap = {};
+  for (const name of vendedores) {
+    const firstName = name.split(' ')[0].toLowerCase();
+    if (!firstNameMap[firstName]) firstNameMap[firstName] = [];
+    firstNameMap[firstName].push(name);
+  }
+  const stopWords = new Set([
+    'de', 'el', 'la', 'los', 'las', 'en', 'a', 'y', 'o', 'que', 'por',
+    'para', 'con', 'me', 'te', 'se', 'nos', 'le', 'un', 'una', 'del', 'al',
+    'es', 'son', 'fue', 'ser', 'hacer', 'ventas', 'mes', 'año', 'clientes',
+    'quiero', 'dame', 'dime', 'muestra', 'cuanto', 'cuantos', 'enero',
+    'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto',
+    'septiembre', 'octubre', 'noviembre', 'diciembre'
+  ]);
+  const queryLower = query.toLowerCase();
+  const words = queryLower.replace(/[¿?¡!,]/g, '').split(/\s+/);
+  for (const word of words) {
+    if (word.length < 3 || stopWords.has(word)) continue;
+    if (firstNameMap[word] && firstNameMap[word].length > 1) {
+      // If a full name from the matches already appears in the query, it's already disambiguated
+      const alreadyDisambiguated = firstNameMap[word].some(fullName =>
+        queryLower.includes(fullName.toLowerCase())
+      );
+      if (alreadyDisambiguated) continue;
+      const display = word.charAt(0).toUpperCase() + word.slice(1);
+      return {
+        searchTerm: word,
+        matches: firstNameMap[word],
+        question: `Encontré ${firstNameMap[word].length} vendedores con el nombre "${display}". ¿A cuál de estos te refieres?`
+      };
+    }
+  }
+  return null;
+}
+
 // Helper to save query to history
 function saveToHistory(userId, query) {
   try {
@@ -44,6 +81,24 @@ export async function handleChat(req, res) {
     // Get metadata for context
     const metadata = await dataService.getMetadata();
 
+    // Get vendedores active in the relevant year (not all historical data since 2016)
+    const filterYear = dateFilter?.range?.start
+      ? new Date(dateFilter.range.start).getFullYear()
+      : new Date().getFullYear();
+    const vendedoresForYear = await dataService.getVendedoresByYear(filterYear);
+
+    // Check for ambiguous vendedor name before calling LLM
+    const ambiguous = detectAmbiguousVendedor(query, vendedoresForYear);
+    if (ambiguous) {
+      return safeSend({
+        type: 'clarification',
+        question: ambiguous.question,
+        matches: ambiguous.matches,
+        searchTerm: ambiguous.searchTerm,
+        originalQuery: query
+      });
+    }
+
     // Process query with LLM (including conversation history, date filter, and user filter for context)
     const llmResponse = await llmService.processQuery(query, metadata, conversationHistory, dateFilter, userFilter);
     if (clientDisconnected) return;
@@ -75,6 +130,10 @@ export async function handleChat(req, res) {
         try {
           const data = await dataService.executeQuery(queryItem.sql);
           if (clientDisconnected) break;
+
+          // Skip empty results - don't add to carousel if no data
+          if (!data || data.length === 0) continue;
+
           const analysis = data && data.length > 0
             ? await llmService.analyzeResults(query, data, queryItem.chartConfig)
             : null;
@@ -98,6 +157,17 @@ export async function handleChat(req, res) {
       }
 
       if (clientDisconnected) return;
+
+      // If all multi-queries returned empty results, show a helpful message
+      if (results.length === 0) {
+        saveToHistory(req.user?.id, query);
+        return safeSend({
+          type: 'conversational',
+          message: 'No se encontraron datos para ninguna de las consultas. Es posible que el período solicitado no tenga registros disponibles.',
+          explanation: 'Sin resultados'
+        });
+      }
+
       saveToHistory(req.user?.id, query);
 
       return safeSend({
@@ -120,6 +190,16 @@ export async function handleChat(req, res) {
     }
 
     if (clientDisconnected) return;
+
+    // If no data found, return a helpful message instead of empty chart
+    if (!data || data.length === 0) {
+      saveToHistory(req.user?.id, query);
+      return safeSend({
+        type: 'conversational',
+        message: 'No se encontraron datos para esta consulta. Es posible que el período solicitado no tenga registros disponibles o que el filtro activo no incluya ese rango de fechas.',
+        explanation: 'Sin resultados'
+      });
+    }
 
     // Analyze the results
     let analysis = null;

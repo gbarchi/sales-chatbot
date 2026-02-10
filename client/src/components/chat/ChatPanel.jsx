@@ -38,6 +38,12 @@ function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSugge
     }
   }, [setIsLoading]);
 
+  const handleClarificationSelect = useCallback((selectedName, searchTerm, originalQuery) => {
+    const regex = new RegExp(searchTerm, 'gi');
+    const clarifiedQuery = originalQuery.replace(regex, selectedName);
+    handleSendMessage(clarifiedQuery);
+  }, []);
+
   const handleSendMessage = async (message) => {
     // Cancel any existing request
     if (abortControllerRef.current) {
@@ -68,6 +74,31 @@ function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSugge
         });
 
       const response = await sendChatMessage(message, conversationHistory, dateFilter, abortControllerRef.current.signal);
+
+      // Detect explicit chart type requests in the user's message
+      // and inject userExplicitRequest flag if LLM missed it
+      if (response && response.chartConfig && !response.chartConfig.userExplicitRequest) {
+        const msgLower = message.toLowerCase();
+        const explicitTablePhrases = ['en una tabla', 'en tabla', 'como tabla', 'formato tabla', 'quiero tabla', 'quiero una tabla', 'muéstrame en tabla', 'muéstrame como tabla', 'dame una tabla', 'en formato de tabla', 'tabla detallada', 'en formato tabla', 'detalle', 'detalle por', 'listado', 'listado de', 'a que clientes', 'a que productos', 'a que provincias', 'por cada cliente', 'para cada cliente', 'de cada cliente', 'cuales son los clientes', 'lista de clientes', 'quiénes son los clientes', 'quienes son los clientes'];
+        const explicitBarPhrases = ['en barras', 'en un gráfico de barras', 'gráfico de barras', 'como barras', 'en forma de barras'];
+        const explicitLinePhrases = ['en líneas', 'en un gráfico de líneas', 'gráfico de líneas', 'como líneas'];
+        const explicitPiePhrases = ['en pie', 'pie chart', 'gráfico circular', 'gráfico de pastel', 'como pastel'];
+
+        if (explicitTablePhrases.some(p => msgLower.includes(p))) {
+          response.chartConfig.userExplicitRequest = true;
+          response.chartType = 'table';
+        } else if (explicitBarPhrases.some(p => msgLower.includes(p))) {
+          response.chartConfig.userExplicitRequest = true;
+          response.chartType = 'bar';
+        } else if (explicitLinePhrases.some(p => msgLower.includes(p))) {
+          response.chartConfig.userExplicitRequest = true;
+          response.chartType = 'line';
+        } else if (explicitPiePhrases.some(p => msgLower.includes(p))) {
+          response.chartConfig.userExplicitRequest = true;
+          response.chartType = 'pie';
+        }
+      }
+
       onBotResponse(response);
     } catch (error) {
       // Don't show error if request was cancelled by user
@@ -99,6 +130,7 @@ function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSugge
           <ChatMessage
             key={message.id}
             message={message}
+            onClarificationSelect={handleClarificationSelect}
           />
         ))}
 

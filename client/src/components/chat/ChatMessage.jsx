@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import ChartCarousel from '../charts/ChartCarousel';
 import ChartContainer from '../charts/ChartContainer';
 
-function ChatMessage({ message }) {
+function ChatMessage({ message, onClarificationSelect }) {
   const [showSQL, setShowSQL] = useState(false);
   const isBot = message.type === 'bot';
   const hasChart = isBot && message.data && message.data.length > 0;
@@ -37,6 +37,20 @@ function ChatMessage({ message }) {
         {message.suggestion && (
           <div className="suggestion-hint">
             💡 {message.suggestion}
+          </div>
+        )}
+
+        {message.isClarification && (
+          <div className="clarification-options">
+            {message.matches.map((name, idx) => (
+              <button
+                key={idx}
+                className="clarification-option"
+                onClick={() => onClarificationSelect(name, message.searchTerm, message.originalQuery)}
+              >
+                {name}
+              </button>
+            ))}
           </div>
         )}
 
@@ -244,6 +258,30 @@ function ChatMessage({ message }) {
           border: 1px solid var(--border-color);
           border-radius: 12px;
           overflow: hidden;
+        }
+
+        .clarification-options {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-top: 12px;
+        }
+
+        .clarification-option {
+          padding: 8px 16px;
+          background: white;
+          border: 1.5px solid var(--primary-color);
+          border-radius: 20px;
+          color: var(--primary-color);
+          font-size: 13px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .clarification-option:hover {
+          background: var(--primary-color);
+          color: white;
         }
       `}</style>
     </div>
