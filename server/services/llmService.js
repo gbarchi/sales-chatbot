@@ -43,8 +43,21 @@ FILTRO DE FECHA ACTIVO:
 `;
     }
 
+    // Add margin restriction for vendors and supervisors
+    let marginRestrictionContext = '';
+    if (userFilter && userFilter.canViewMargin === false) {
+      marginRestrictionContext = `
+🚫 RESTRICCIÓN DE SEGURIDAD - MARGEN DE VENTA:
+- Este usuario NO tiene acceso a datos de margen de venta
+- NUNCA incluyas en el SELECT: Margen, LineCost, ROUND((SUM(LineTotal) - SUM(LineCost))..., o cualquier cálculo de ganancia
+- NUNCA generes fórmulas que calculen o muestren margen porcentaje
+- Si el usuario pregunta por "margen", "ganancia", "utilidad", "rentabilidad", responde con un error diciendo que no tiene permisos para ver esa información
+- Responde con: {"error": "No tienes permiso para acceder a información de margen de venta", "suggestion": "Consulta a tu gerente o supervisor para acceso a datos de rentabilidad"}
+`;
+    }
+
     return `Eres un asistente experto en análisis de ventas. Tu trabajo es convertir preguntas en lenguaje natural sobre datos de ventas en consultas SQL válidas para DuckDB, y recomendar el tipo de visualización más apropiado.
-${dateFilterContext}${userFilterContext}
+${dateFilterContext}${userFilterContext}${marginRestrictionContext}
 ESQUEMA DE LA TABLA 'sales':
 ${metadata.schema.columns.map(c => `- ${c.name} (${c.type}): ${c.description}`).join('\n')}
 

@@ -192,7 +192,7 @@ class UserService {
   // Get filter context for a user's role
   getFilterContext(user) {
     if (!user) {
-      return { filter: null, description: null };
+      return { filter: null, description: null, canViewMargin: true };
     }
 
     switch (user.role) {
@@ -200,7 +200,8 @@ class UserService {
       case 'gerente':
         return {
           filter: null,
-          description: 'Acceso completo a todos los datos'
+          description: 'Acceso completo a todos los datos',
+          canViewMargin: true
         };
 
       case 'supervisor':
@@ -209,27 +210,29 @@ class UserService {
           const safeName = this.escapeSqlString(user.supervisor_name);
           return {
             filter: `NombreSupervisor = '${safeName}'`,
-            description: `Solo datos del equipo de ${user.supervisor_name}`
+            description: `Solo datos del equipo de ${user.supervisor_name}`,
+            canViewMargin: false  // Supervisors cannot view margin data
           };
         }
-        return { filter: null, description: 'Supervisor sin equipo asignado' };
+        return { filter: null, description: 'Supervisor sin equipo asignado', canViewMargin: false };
 
       case 'vendedor':
         if (user.slpcode) {
           // SECURITY: Validate slpcode is a valid integer
           const safeSlpcode = this.validateSqlInteger(user.slpcode);
           if (safeSlpcode === null) {
-            return { filter: null, description: 'Código de vendedor inválido' };
+            return { filter: null, description: 'Código de vendedor inválido', canViewMargin: false };
           }
           return {
             filter: `Slpcode = ${safeSlpcode}`,
-            description: `Solo datos del vendedor ${user.name} (Código: ${safeSlpcode})`
+            description: `Solo datos del vendedor ${user.name} (Código: ${safeSlpcode})`,
+            canViewMargin: false  // Vendors cannot view margin data
           };
         }
-        return { filter: null, description: 'Vendedor sin código asignado' };
+        return { filter: null, description: 'Vendedor sin código asignado', canViewMargin: false };
 
       default:
-        return { filter: null, description: null };
+        return { filter: null, description: null, canViewMargin: true };
     }
   }
 

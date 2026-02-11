@@ -51,6 +51,37 @@ function saveToHistory(userId, query) {
   }
 }
 
+// Check if SQL query attempts to access margin/cost data (forbidden for vendors and supervisors)
+function checkMarginAccess(sql, canViewMargin) {
+  if (canViewMargin === true) return null; // Admin/gerente can view all data
+
+  // Margin-related keywords that restricted users should not access
+  const marginKeywords = [
+    'LineCost',
+    'Margen',
+    'SUM(LineCost)',
+    '(SUM(LineTotal) - SUM(LineCost))',
+    'rentabilidad',
+    'ganancia',
+    'utilidad',
+    '(vendedor - costo)',
+    '(ventas - costo)'
+  ];
+
+  const sqlUpper = sql.toUpperCase();
+  for (const keyword of marginKeywords) {
+    const keywordUpper = keyword.toUpperCase();
+    if (sqlUpper.includes(keywordUpper)) {
+      return {
+        error: 'No tienes permiso para acceder a información de margen de venta',
+        suggestion: 'Consulta a tu gerente o supervisor para acceso a datos de rentabilidad'
+      };
+    }
+  }
+
+  return null;
+}
+
 export async function handleChat(req, res) {
   // Track if client disconnected (e.g., Ctrl+R refresh)
   let clientDisconnected = false;
@@ -131,6 +162,17 @@ export async function handleChat(req, res) {
 
       for (const queryItem of llmResponse.queries) {
         if (clientDisconnected) break;
+
+        // Check margin access restrictions for each query
+        const marginCheckError = checkMarginAccess(queryItem.sql, userFilter?.canViewMargin);
+        if (marginCheckError) {
+          return safeSend({
+            type: 'error',
+            message: marginCheckError.error,
+            suggestion: marginCheckError.suggestion
+          });
+        }
+
         try {
           const data = await dataService.executeQuery(queryItem.sql);
           if (clientDisconnected) break;
@@ -182,6 +224,17 @@ export async function handleChat(req, res) {
     }
 
     // Handle SINGLE query (original behavior)
+
+    // Check margin access restrictions for vendors and supervisors
+    const marginCheckError = checkMarginAccess(llmResponse.sql, userFilter?.canViewMargin);
+    if (marginCheckError) {
+      return safeSend({
+        type: 'error',
+        message: marginCheckError.error,
+        suggestion: marginCheckError.suggestion
+      });
+    }
+
     let data;
     try {
       data = await dataService.executeQuery(llmResponse.sql);
