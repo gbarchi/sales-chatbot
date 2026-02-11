@@ -191,13 +191,14 @@ export async function handleChat(req, res) {
 
     if (clientDisconnected) return;
 
-    // If no data found, return a helpful message instead of empty chart
+    // If no data found, return a helpful message with the SQL so user can debug
     if (!data || data.length === 0) {
       saveToHistory(req.user?.id, query);
       return safeSend({
         type: 'conversational',
         message: 'No se encontraron datos para esta consulta. Es posible que el período solicitado no tenga registros disponibles o que el filtro activo no incluya ese rango de fechas.',
-        explanation: 'Sin resultados'
+        explanation: 'Sin resultados',
+        sql: llmResponse.sql  // Include SQL so user can debug what was queried
       });
     }
 

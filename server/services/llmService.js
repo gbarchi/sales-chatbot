@@ -52,6 +52,7 @@ DATOS DISPONIBLES:
 - Rango de fechas: ${metadata.dateRange.min} a ${metadata.dateRange.max}
 - Vendedores disponibles: ${metadata.vendedores.slice(0, 15).join(', ')}${metadata.vendedores.length > 15 ? ` ... y ${metadata.vendedores.length - 15} más` : ''}
 - Supervisores: ${metadata.supervisores.join(', ')}
+- Familias de producto (ItmsgrpName): ${metadata.grupos.join(', ')}
 - Categorías de producto: ${metadata.categorias.slice(0, 15).join(', ')}${metadata.categorias.length > 15 ? ` ... y ${metadata.categorias.length - 15} más` : ''}
 - Provincias: ${metadata.provincias.slice(0, 10).join(', ')}${metadata.provincias.length > 10 ? ` ... y ${metadata.provincias.length - 10} más` : ''}
 - Total de registros: ${metadata.rowCount.toLocaleString()}
@@ -84,7 +85,28 @@ REGLAS SQL PARA DuckDB:
     - Para COUNT(DISTINCT CardCode) usa: "Clientes" o "Num_Clientes"
     - Para COUNT(*) usa: "Registros" o "Lineas"
 11. Para filtrar por fechas: WHERE Fecha >= '2023-01-01' AND Fecha < '2024-01-01'
-12. Para búsquedas de texto usa ILIKE: WHERE NombreVendedor ILIKE '%nombre%'
+12. Para búsquedas de texto SIEMPRE usa ILIKE (nunca =):
+    - Familia/grupo: Usa el NOMBRE EXACTO de la lista arriba (ej: "Iluminación", NO "iluminacion")
+      * Correcto: WHERE ItmsgrpName ILIKE '%Iluminación%'
+      * Incorrecto: WHERE ItmsgrpName ILIKE '%iluminacion%'
+    - SubFamilia: WHERE SubFamiliaName ILIKE '%Aqua%'
+    - Categoría: WHERE Categoria ILIKE '%cables%'
+    - Vendedor/Cliente: WHERE NombreVendedor ILIKE '%nombre%'
+    - NUNCA uses = para comparar texto (siempre ILIKE)
+    - ⚠️ CRITICAL: Los valores de ItmsgrpName en la base de datos TIENEN ACENTOS y MAYÚSCULAS ESPECÍFICAS.
+      Si el usuario dice "iluminacion" sin acento, transforma a "Iluminación" (con acento, capital I).
+      Lista exacta (CÓPIALA EXACTAMENTE): Iluminación, Material Eléctrico, Materiales Construc, Herramientas, Partes y Piezas, Energía Solar, Aluminio
+
+JERARQUÍA DE PRODUCTO (de mayor a menor detalle):
+- Familia (ItmsgrpName): Iluminación, Material Eléctrico, Materiales Construc, Herramientas, Partes y Piezas, Energía Solar, Aluminio
+  * Si el usuario dice "iluminacion" (sin acento), busca el equivalente con acento en la lista: "Iluminación"
+  * SIEMPRE usa ILIKE con el nombre EXACTO de la lista
+- SubFamilia (SubFamiliaName): Marcas como Aqua, Sylvania, etc.
+  * Si el usuario dice "marca X" o "subfamilia X" → usa SubFamiliaName ILIKE '%X%'
+- Categoría (Categoria): Valores específicos basados en productos
+  * Si el usuario dice "categoría X" → usa Categoria ILIKE '%X%'
+- SubCategoria (SubCategoria): Nivel más detallado
+
 13. IMPORTANTE: Toda columna en SELECT que no sea función de agregación DEBE estar en GROUP BY
     - Correcto: SELECT DATE_TRUNC('month', Fecha) as Mes, SUM(LineTotal) FROM sales GROUP BY DATE_TRUNC('month', Fecha)
     - Incorrecto: SELECT DATE_TRUNC('month', Fecha) as Mes, SUM(LineTotal) FROM sales GROUP BY Mes
@@ -365,9 +387,9 @@ Cuando el usuario pida "heatmap", "mapa de calor", o análisis "por X y Categor�
 2. SQL debe tener DOS columnas categóricas + UNA columna numérica
 3. chartConfig debe especificar xKey, yKey, y valueKey
 
-Ejemplo 1 - Rendimiento por vendedor y categoría:
+Ejemplo 1 - Rendimiento por vendedor y familia:
 {
-  "sql": "SELECT NombreVendedor as Vendedor, Familia as Categoria, SUM(LineTotal) as Ventas FROM sales GROUP BY NombreVendedor, Familia ORDER BY Vendedor, Categoria",
+  "sql": "SELECT NombreVendedor as Vendedor, ItmsgrpName as Familia, SUM(LineTotal) as Ventas FROM sales GROUP BY NombreVendedor, ItmsgrpName ORDER BY Vendedor, Familia LIMIT 500",
   "chartType": "heatmap",
   "chartConfig": {
     "xKey": "Categoria",

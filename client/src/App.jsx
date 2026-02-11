@@ -144,6 +144,7 @@ function App() {
       botMessage.isError = true;
     } else if (response.type === 'conversational') {
       botMessage.content = response.message;
+      botMessage.sql = response.sql;  // Include SQL for debugging when no data found
     } else if (response.type === 'clarification') {
       botMessage.content = response.question;
       botMessage.isClarification = true;

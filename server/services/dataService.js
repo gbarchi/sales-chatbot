@@ -148,6 +148,7 @@ class DataService {
       supervisores,
       categorias,
       provincias,
+      grupos,
       dateRange,
       rowCount
     ] = await Promise.all([
@@ -155,6 +156,7 @@ class DataService {
       this.executeQuery('SELECT DISTINCT NombreSupervisor FROM sales WHERE NombreSupervisor IS NOT NULL ORDER BY NombreSupervisor'),
       this.executeQuery('SELECT DISTINCT Categoria FROM sales WHERE Categoria IS NOT NULL ORDER BY Categoria'),
       this.executeQuery('SELECT DISTINCT ProvinciaPrincipal FROM sales WHERE ProvinciaPrincipal IS NOT NULL ORDER BY ProvinciaPrincipal'),
+      this.executeQuery('SELECT DISTINCT ItmsgrpName FROM sales WHERE ItmsgrpName IS NOT NULL ORDER BY ItmsgrpName'),
       this.executeQuery('SELECT MIN(Fecha) as minDate, MAX(Fecha) as maxDate FROM sales'),
       this.executeQuery('SELECT CAST(COUNT(*) AS INTEGER) as count FROM sales')
     ]);
@@ -163,6 +165,7 @@ class DataService {
       vendedores: vendedores.map(r => r.NombreVendedor),
       supervisores: supervisores.map(r => r.NombreSupervisor),
       categorias: categorias.map(r => r.Categoria),
+      grupos: grupos.map(r => r.ItmsgrpName),
       provincias: provincias.map(r => r.ProvinciaPrincipal),
       dateRange: {
         min: dateRange[0].minDate,
@@ -180,7 +183,7 @@ class DataService {
           { name: 'Slpcode', type: 'INTEGER', description: 'Código único del vendedor' },
           { name: 'NombreVendedor', type: 'STRING', description: 'Nombre del vendedor' },
           { name: 'NombreSupervisor', type: 'STRING', description: 'Nombre del supervisor' },
-          { name: 'ItmsgrpName', type: 'STRING', description: 'Grupo de artículos (Material Eléctrico, etc.)' },
+          { name: 'ItmsgrpName', type: 'STRING', description: 'Familia del producto (nivel más alto de la jerarquía: Iluminación, Material Eléctrico, Herramientas, Materiales Construc, etc. - nota los acentos)' },
           { name: 'SubFamiliaName', type: 'STRING', description: 'Subfamilia/marca del producto (AQUA, etc.)' },
           { name: 'Categoria', type: 'STRING', description: 'Categoría del producto (INTERRUPTORES, CABLES, etc.)' },
           { name: 'SubCategoria', type: 'STRING', description: 'Subcategoría del producto' },
