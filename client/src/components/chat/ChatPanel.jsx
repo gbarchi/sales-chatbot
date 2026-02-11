@@ -58,20 +58,28 @@ function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSugge
 
     try {
       // Build conversation history from previous messages for context
-      const conversationHistory = messages
-        .filter(m => m.type === 'user' || (m.type === 'bot' && !m.isError))
-        .map(m => {
-          if (m.type === 'user') {
-            return { role: 'user', content: m.content };
-          } else {
-            // For bot messages, include a summary of what was queried
-            return {
-              role: 'assistant',
-              content: m.content,
-              summary: m.explanation || m.content
-            };
+      // CRITICAL: Skip user messages that resulted in errors to prevent contaminating the LLM's context
+      // If a user asked about margins and got an error, that query shouldn't influence future queries
+      const conversationHistory = [];
+      for (let i = 0; i < messages.length; i++) {
+        const msg = messages[i];
+        if (msg.type === 'user') {
+          // Look ahead for this user's bot response
+          const nextBot = messages.slice(i + 1).find(m => m.type === 'bot');
+          // Only include user message if the bot response was NOT an error
+          if (nextBot && !nextBot.isError) {
+            conversationHistory.push({ role: 'user', content: msg.content });
           }
-        });
+          // If nextBot is an error or doesn't exist, skip this user message entirely
+        } else if (msg.type === 'bot' && !msg.isError) {
+          // For bot messages, include a summary of what was queried
+          conversationHistory.push({
+            role: 'assistant',
+            content: msg.content,
+            summary: msg.explanation || msg.content
+          });
+        }
+      }
 
       const response = await sendChatMessage(message, conversationHistory, dateFilter, abortControllerRef.current.signal);
 

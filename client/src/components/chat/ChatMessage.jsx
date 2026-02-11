@@ -14,6 +14,21 @@ function ChatMessage({ message, onClarificationSelect }) {
     window.dispatchEvent(event);
   };
 
+  // Convert markdown-style bold (**text**) to JSX with <strong> tags
+  const renderMarkdownLine = (text) => {
+    const parts = text.split(/(\*\*[^*]+\*\*)/g);
+    return parts.map((part, idx) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return (
+          <strong key={idx}>
+            {part.slice(2, -2)}
+          </strong>
+        );
+      }
+      return part;
+    });
+  };
+
   return (
     <div className={`chat-message ${isBot ? 'bot' : 'user'} ${message.isError ? 'error' : ''}`}>
       {isBot && (
@@ -28,7 +43,7 @@ function ChatMessage({ message, onClarificationSelect }) {
         <div className="message-text">
           {message.content?.split('\n').map((line, i) => (
             <React.Fragment key={i}>
-              {line}
+              {renderMarkdownLine(line)}
               {i < message.content.split('\n').length - 1 && <br />}
             </React.Fragment>
           ))}
@@ -91,7 +106,7 @@ function ChatMessage({ message, onClarificationSelect }) {
             <div className="analysis-content">
               {message.analysis.split('\n').map((line, i) => (
                 <React.Fragment key={i}>
-                  {line}
+                  {renderMarkdownLine(line)}
                   {i < message.analysis.split('\n').length - 1 && <br />}
                 </React.Fragment>
               ))}
@@ -146,6 +161,11 @@ function ChatMessage({ message, onClarificationSelect }) {
           border-radius: 16px;
           font-size: 14px;
           line-height: 1.5;
+        }
+
+        .message-text strong {
+          font-weight: 600;
+          color: inherit;
         }
 
         .bot .message-text {

@@ -43,23 +43,16 @@ FILTRO DE FECHA ACTIVO:
 `;
     }
 
-    // Add margin restriction for vendors and supervisors
-    let marginRestrictionContext = '';
+    // Filter schema columns for users without margin access
+    let schemaColumns = metadata.schema.columns;
     if (userFilter && userFilter.canViewMargin === false) {
-      marginRestrictionContext = `
-🚫 RESTRICCIÓN DE SEGURIDAD - MARGEN DE VENTA:
-- Este usuario NO tiene acceso a datos de margen de venta
-- NUNCA incluyas en el SELECT: Margen, LineCost, ROUND((SUM(LineTotal) - SUM(LineCost))..., o cualquier cálculo de ganancia
-- NUNCA generes fórmulas que calculen o muestren margen porcentaje
-- Si el usuario pregunta por "margen", "ganancia", "utilidad", "rentabilidad", responde con un error diciendo que no tiene permisos para ver esa información
-- Responde con: {"error": "No tienes permiso para acceder a información de margen de venta", "suggestion": "Consulta a tu gerente o supervisor para acceso a datos de rentabilidad"}
-`;
+      schemaColumns = schemaColumns.filter(c => c.name !== 'LineCost' && c.name !== 'Margen');
     }
 
     return `Eres un asistente experto en análisis de ventas. Tu trabajo es convertir preguntas en lenguaje natural sobre datos de ventas en consultas SQL válidas para DuckDB, y recomendar el tipo de visualización más apropiado.
-${dateFilterContext}${userFilterContext}${marginRestrictionContext}
+${dateFilterContext}${userFilterContext}
 ESQUEMA DE LA TABLA 'sales':
-${metadata.schema.columns.map(c => `- ${c.name} (${c.type}): ${c.description}`).join('\n')}
+${schemaColumns.map(c => `- ${c.name} (${c.type}): ${c.description}`).join('\n')}
 
 DATOS DISPONIBLES:
 - Rango de fechas: ${metadata.dateRange.min} a ${metadata.dateRange.max}
@@ -86,10 +79,10 @@ Si hay términos que NO aparecen aquí, usa ILIKE '%término%' como siempre para
 REGLAS SQL PARA DuckDB:
 1. SOLO genera consultas SELECT (nunca INSERT, UPDATE, DELETE, DROP, etc.)
 2. Para ventas/ingresos totales usa: SUM(LineTotal)
-3. Para margen de ganancia SIEMPRE usa esta fórmula (NO uses la columna Margen):
+${(userFilter?.canViewMargin !== false) ? `3. Para margen de ganancia SIEMPRE usa esta fórmula (NO uses la columna Margen):
    ROUND((SUM(LineTotal) - SUM(LineCost)) / NULLIF(SUM(LineTotal), 0) * 100, 2) as Margen
    - Esta fórmula calcula: (Ventas - Costo) / Ventas * 100
-   - Excluye registros donde LineTotal <= 0: WHERE LineTotal > 0
+   - Excluye registros donde LineTotal <= 0: WHERE LineTotal > 0` : `3. Para análisis de cantidad y facturación usa: CAST(COUNT(*) AS INTEGER) o COUNT(DISTINCT DocNum)`}
 4. Para contar documentos/facturas únicos: COUNT(DISTINCT DocNum)
 5. Para contar líneas/items: CAST(COUNT(*) AS INTEGER)
 6. Limita resultados con LIMIT (máximo 100 filas). EXCEPCIÓN: para heatmaps usar LIMIT 500 ya que necesitan todas las combinaciones de las dos dimensiones
@@ -189,14 +182,15 @@ TIPOS DE GRÁFICO:
 - "heatmap": Análisis cruzado de dos dimensiones (por vendedor y categoría). Matriz de colores.
 - "table": Datos detallados, listados, o >15 categorías.
 
-REGLA CRÍTICA PARA SCATTER vs COMBO:
+${(userFilter?.canViewMargin !== false) ? `REGLA CRÍTICA PARA SCATTER vs COMBO:
 - Si el usuario pide "scatter", "scatter plot", "dispersión", "correlación" → usar chartType "scatter"
 - Si el usuario pide "ventas y margen" SIN mencionar scatter → usar chartType "combo"
 
 Cuando uses COMBO:
 1. chartType = "combo"
 2. SQL DEBE incluir ambas columnas: SUM(LineTotal) as Total_Ventas, ROUND((SUM(LineTotal) - SUM(LineCost)) / NULLIF(SUM(LineTotal), 0) * 100, 2) as Margen
-3. chartConfig DEBE tener barKey Y lineKey
+3. chartConfig DEBE tener barKey Y lineKey` : `REGLA PARA SCATTER:
+- Si el usuario pide "scatter", "scatter plot", "dispersión", "correlación" → usar chartType "scatter"`}
 
 Cuando uses SCATTER:
 1. chartType = "scatter"
@@ -333,7 +327,7 @@ RECUERDA: Si usuario dice "en una tabla", "quiero barras", "muéstramelo en lín
 "userExplicitRequest": true
 en el chartConfig
 
-CONFIGURACIÓN ESPECIAL PARA COMBO CHART (MUY IMPORTANTE):
+${(userFilter?.canViewMargin !== false) ? `CONFIGURACIÓN ESPECIAL PARA COMBO CHART (MUY IMPORTANTE):
 El combo chart muestra BARRAS + LÍNEA. REQUIERE:
 1. El SQL DEBE incluir DOS columnas numéricas (ej: Total_Ventas Y Margen_Promedio)
 2. chartConfig DEBE especificar barKey y lineKey explícitamente
@@ -354,7 +348,7 @@ Ejemplo completo:
 IMPORTANTE para combo:
 - barKey = columna para las BARRAS (eje izquierdo, normalmente ventas/cantidad)
 - lineKey = columna para la LÍNEA (eje derecho, normalmente margen/porcentaje)
-- AMBAS columnas deben existir en el SELECT del SQL
+- AMBAS columnas deben existir en el SELECT del SQL` : ``}
 
 CONFIGURACIÓN ESPECIAL PARA SCATTER CHART (MUY IMPORTANTE):
 El scatter plot muestra la RELACIÓN/CORRELACIÓN entre dos variables numéricas. REQUIERE:
@@ -362,7 +356,7 @@ El scatter plot muestra la RELACIÓN/CORRELACIÓN entre dos variables numéricas
 2. chartConfig DEBE especificar xKey (numérico), yKey (numérico), y labelKey (texto para identificar puntos)
 3. USAR cuando el usuario pide explícitamente "scatter", "scatter plot", "dispersión", o "correlación"
 
-Ejemplo scatter:
+${(userFilter?.canViewMargin !== false) ? `Ejemplo scatter:
 {
   "sql": "SELECT NombreVendedor, SUM(LineTotal) as Ventas, ROUND((SUM(LineTotal) - SUM(LineCost)) / NULLIF(SUM(LineTotal), 0) * 100, 2) as Margen FROM sales GROUP BY NombreVendedor HAVING SUM(LineTotal) > 0",
   "chartType": "scatter",
@@ -373,11 +367,21 @@ Ejemplo scatter:
     "title": "Scatter Plot: Ventas vs Margen por Vendedor"
   },
   "explanation": "Gráfico de dispersión que muestra la correlación entre ventas totales y margen de ganancia para cada vendedor."
-}
+}` : `Ejemplo scatter (con dos columnas numéricas):
+{
+  "sql": "SELECT NombreVendedor, SUM(LineTotal) as Ventas, SUM(Quantity) as Unidades FROM sales GROUP BY NombreVendedor HAVING SUM(LineTotal) > 0",
+  "chartType": "scatter",
+  "chartConfig": {
+    "xKey": "Ventas",
+    "yKey": "Unidades",
+    "labelKey": "NombreVendedor",
+    "title": "Scatter Plot: Ventas vs Unidades por Vendedor"
+  }
+}`}
 
 IMPORTANTE para scatter:
 - xKey = columna numérica para el eje X (ej: Ventas)
-- yKey = columna numérica para el eje Y (ej: Margen)
+- yKey = columna numérica para el eje Y (ej: Unidades o Margen)
 - labelKey = columna de texto para identificar cada punto en el tooltip (ej: NombreVendedor)
 - NO confundir con combo: scatter muestra PUNTOS, combo muestra BARRAS + LÍNEA
 

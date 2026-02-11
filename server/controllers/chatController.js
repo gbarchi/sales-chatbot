@@ -51,27 +51,43 @@ function saveToHistory(userId, query) {
   }
 }
 
+// Check if user's QUERY INTENT is to access margin data (keywords in user's question)
+function checkMarginQueryIntent(query, canViewMargin) {
+  if (canViewMargin === true) return null;
+
+  // Normalize query: lowercase + remove accents to catch variations
+  const queryLower = query.toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  const marginKeywords = ['margen', 'ganancia', 'utilidad', 'rentabilidad'];
+
+  for (const keyword of marginKeywords) {
+    if (queryLower.includes(keyword)) {
+      return {
+        error: 'No tienes permiso para acceder a información de margen de venta',
+        suggestion: 'Consulta a tu gerente o supervisor para acceso a datos de rentabilidad'
+      };
+    }
+  }
+  return null;
+}
+
 // Check if SQL query attempts to access margin/cost data (forbidden for vendors and supervisors)
 function checkMarginAccess(sql, canViewMargin) {
   if (canViewMargin === true) return null; // Admin/gerente can view all data
 
-  // Margin-related keywords that restricted users should not access
-  const marginKeywords = [
-    'LineCost',
-    'Margen',
-    'SUM(LineCost)',
-    '(SUM(LineTotal) - SUM(LineCost))',
-    'rentabilidad',
-    'ganancia',
-    'utilidad',
-    '(vendedor - costo)',
-    '(ventas - costo)'
+  const sqlUpper = sql.toUpperCase();
+
+  // Only block actual margin calculations or explicit cost data access
+  // Allow queries that just select sales/quantity data
+  const forbiddenPatterns = [
+    /LINECOST/,  // Any reference to LineCost column
+    /\(SUM\(LINETOTAL\)\s*-\s*SUM\(LINECOST\)\)/,  // Margin formula: (SUM(LineTotal) - SUM(LineCost))
+    /\bMARGEN\b/,  // The Margen column itself (word boundary to avoid false positives)
   ];
 
-  const sqlUpper = sql.toUpperCase();
-  for (const keyword of marginKeywords) {
-    const keywordUpper = keyword.toUpperCase();
-    if (sqlUpper.includes(keywordUpper)) {
+  for (const pattern of forbiddenPatterns) {
+    if (pattern.test(sqlUpper)) {
       return {
         error: 'No tienes permiso para acceder a información de margen de venta',
         suggestion: 'Consulta a tu gerente o supervisor para acceso a datos de rentabilidad'
@@ -109,6 +125,17 @@ export async function handleChat(req, res) {
 
     // Get user's filter context based on their role
     const userFilter = req.user ? userService.getFilterContext(req.user) : { filter: null, description: null };
+
+    // Block margin queries BEFORE reaching LLM (user intent pre-check)
+    // This prevents LLM from inventing alternative margin calculations
+    const intentError = checkMarginQueryIntent(query, userFilter?.canViewMargin);
+    if (intentError) {
+      return safeSend({
+        type: 'error',
+        message: intentError.error,
+        suggestion: intentError.suggestion
+      });
+    }
 
     // Get metadata for context
     const metadata = await dataService.getMetadata();
@@ -306,20 +333,27 @@ export async function getMetadata(req, res) {
 }
 
 export async function getSuggestedQueries(req, res) {
-  res.json({
-    queries: [
-      { text: 'Mostrar ventas por mes', category: 'Tendencias' },
-      { text: 'Top 10 vendedores', category: 'Rankings' },
-      { text: 'Ventas por categoría', category: 'Análisis' },
-      { text: 'Ventas por provincia', category: 'Geografía' },
-      { text: 'Margen promedio por supervisor', category: 'Rentabilidad' },
-      { text: 'Productos más vendidos', category: 'Productos' },
-      { text: 'Tendencia de los últimos 6 meses', category: 'Tendencias' },
-      { text: 'Distribución de ventas por categoría', category: 'Análisis' },
-      { text: 'Top 20 clientes', category: 'Clientes' },
-      { text: 'Ventas totales', category: 'Resumen' },
-      { text: 'Comparativo año actual vs anterior', category: 'Comparativo' },
-      { text: 'Unidades vendidas por mes', category: 'Inventario' }
-    ]
-  });
+  // Get user's margin access permission
+  const userFilter = req.user ? userService.getFilterContext(req.user) : { canViewMargin: true };
+
+  let queries = [
+    { text: 'Mostrar ventas por mes', category: 'Tendencias' },
+    { text: 'Top 10 vendedores', category: 'Rankings' },
+    { text: 'Ventas por categoría', category: 'Análisis' },
+    { text: 'Ventas por provincia', category: 'Geografía' },
+    { text: 'Productos más vendidos', category: 'Productos' },
+    { text: 'Tendencia de los últimos 6 meses', category: 'Tendencias' },
+    { text: 'Distribución de ventas por categoría', category: 'Análisis' },
+    { text: 'Top 20 clientes', category: 'Clientes' },
+    { text: 'Ventas totales', category: 'Resumen' },
+    { text: 'Comparativo año actual vs anterior', category: 'Comparativo' },
+    { text: 'Unidades vendidas por mes', category: 'Inventario' }
+  ];
+
+  // Only show Rentabilidad queries if user has margin access
+  if (userFilter.canViewMargin === true) {
+    queries.push({ text: 'Margen promedio por supervisor', category: 'Rentabilidad' });
+  }
+
+  res.json({ queries });
 }
