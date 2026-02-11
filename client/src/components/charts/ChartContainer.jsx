@@ -62,13 +62,24 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
     if (value instanceof Date || (typeof value === 'string' && value.match(/^\d{4}-\d{2}/))) {
       // Parse the date string manually to avoid timezone shifts
       const dateStr = typeof value === 'string' ? value : value.toISOString();
-      const match = dateStr.match(/^(\d{4})-(\d{2})/);
-      if (match) {
-        const year = parseInt(match[1]);
-        const month = parseInt(match[2]) - 1; // 0-indexed
+
+      // Check if it's a full date (YYYY-MM-DD)
+      const fullDateMatch = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (fullDateMatch) {
+        // For daily data, show just the day
+        const day = parseInt(fullDateMatch[3]);
+        return day.toString();
+      }
+
+      // Otherwise, show month-year (YYYY-MM)
+      const monthYearMatch = dateStr.match(/^(\d{4})-(\d{2})/);
+      if (monthYearMatch) {
+        const year = parseInt(monthYearMatch[1]);
+        const month = parseInt(monthYearMatch[2]) - 1; // 0-indexed
         const monthNames = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
         return `${monthNames[month]} ${String(year).slice(-2)}`;
       }
+
       // Fallback
       const date = new Date(value);
       return date.toLocaleDateString('es-ES', { month: 'short', year: '2-digit', timeZone: 'UTC' });
