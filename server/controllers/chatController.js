@@ -1,6 +1,7 @@
 import dataService from '../services/dataService.js';
 import llmService from '../services/llmService.js';
 import { userService } from '../services/userService.js';
+import { resolveEntities } from '../services/entityResolver.js';
 
 // Detect if a query mentions an ambiguous vendedor first name (matches multiple people)
 function detectAmbiguousVendedor(query, vendedores) {
@@ -99,8 +100,11 @@ export async function handleChat(req, res) {
       });
     }
 
+    // Resolve entity references (e.g., "iluminacion" → "Iluminación") before calling LLM
+    const resolvedEntities = resolveEntities(query, metadata);
+
     // Process query with LLM (including conversation history, date filter, and user filter for context)
-    const llmResponse = await llmService.processQuery(query, metadata, conversationHistory, dateFilter, userFilter);
+    const llmResponse = await llmService.processQuery(query, metadata, conversationHistory, dateFilter, userFilter, resolvedEntities);
     if (clientDisconnected) return;
 
     if (llmResponse.error) {

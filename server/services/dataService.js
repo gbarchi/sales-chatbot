@@ -9,6 +9,7 @@ class DataService {
   constructor() {
     this.db = null;
     this.initialized = false;
+    this.metadataCache = null;  // Cache metadata since it's static after server start
   }
 
   async initialize() {
@@ -143,12 +144,18 @@ class DataService {
       await this.initialize();
     }
 
+    // Return cached metadata if available (data is static after server start)
+    if (this.metadataCache) {
+      return this.metadataCache;
+    }
+
     const [
       vendedores,
       supervisores,
       categorias,
       provincias,
       grupos,
+      subfamilias,
       dateRange,
       rowCount
     ] = await Promise.all([
@@ -157,15 +164,17 @@ class DataService {
       this.executeQuery('SELECT DISTINCT Categoria FROM sales WHERE Categoria IS NOT NULL ORDER BY Categoria'),
       this.executeQuery('SELECT DISTINCT ProvinciaPrincipal FROM sales WHERE ProvinciaPrincipal IS NOT NULL ORDER BY ProvinciaPrincipal'),
       this.executeQuery('SELECT DISTINCT ItmsgrpName FROM sales WHERE ItmsgrpName IS NOT NULL ORDER BY ItmsgrpName'),
+      this.executeQuery('SELECT DISTINCT SubFamiliaName FROM sales WHERE SubFamiliaName IS NOT NULL ORDER BY SubFamiliaName'),
       this.executeQuery('SELECT MIN(Fecha) as minDate, MAX(Fecha) as maxDate FROM sales'),
       this.executeQuery('SELECT CAST(COUNT(*) AS INTEGER) as count FROM sales')
     ]);
 
-    return {
+    const metadata = {
       vendedores: vendedores.map(r => r.NombreVendedor),
       supervisores: supervisores.map(r => r.NombreSupervisor),
       categorias: categorias.map(r => r.Categoria),
       grupos: grupos.map(r => r.ItmsgrpName),
+      subfamilias: subfamilias.map(r => r.SubFamiliaName),
       provincias: provincias.map(r => r.ProvinciaPrincipal),
       dateRange: {
         min: dateRange[0].minDate,
@@ -207,6 +216,10 @@ class DataService {
         ]
       }
     };
+
+    // Cache the metadata (data is static after server start)
+    this.metadataCache = metadata;
+    return metadata;
   }
 
   // Get distinct vendedores who made sales in a specific year

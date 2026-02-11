@@ -14,7 +14,7 @@ class LLMService {
     });
   }
 
-  getSystemPrompt(metadata, dateFilter = null, userFilter = null) {
+  getSystemPrompt(metadata, dateFilter = null, userFilter = null, resolvedEntities = []) {
     // Build date filter context if active
     let dateFilterContext = '';
     if (dateFilter && dateFilter.range) {
@@ -57,7 +57,12 @@ DATOS DISPONIBLES:
 - Provincias: ${metadata.provincias.slice(0, 10).join(', ')}${metadata.provincias.length > 10 ? ` ... y ${metadata.provincias.length - 10} más` : ''}
 - Total de registros: ${metadata.rowCount.toLocaleString()}
 
-IMPORTANTE - MANEJO DE FECHAS:
+${resolvedEntities.length > 0 ? `VALORES EXACTOS DETECTADOS EN ESTA CONSULTA (ya resueltos):
+${resolvedEntities.map(e => `- ${e.column} = '${e.exactValue}'`).join('\n')}
+Para estos valores ya resueltos, usa = en lugar de ILIKE en la cláusula WHERE (es más preciso).
+Si hay términos que NO aparecen aquí, usa ILIKE '%término%' como siempre para búsquedas parciales.
+
+` : ''}IMPORTANTE - MANEJO DE FECHAS:
 - Los datos SOLO contienen registros desde ${metadata.dateRange.min} hasta ${metadata.dateRange.max}
 - NO existen datos posteriores a ${metadata.dateRange.max} - cualquier fecha después de esto devolverá 0 resultados
 - Cuando el usuario diga "este año", "reciente", "últimos meses", "actual", etc., SIEMPRE usa fechas dentro del rango disponible
@@ -86,26 +91,8 @@ REGLAS SQL PARA DuckDB:
     - Para COUNT(*) usa: "Registros" o "Lineas"
 11. Para filtrar por fechas: WHERE Fecha >= '2023-01-01' AND Fecha < '2024-01-01'
 12. Para búsquedas de texto SIEMPRE usa ILIKE (nunca =):
-    - Familia/grupo: Usa el NOMBRE EXACTO de la lista arriba (ej: "Iluminación", NO "iluminacion")
-      * Correcto: WHERE ItmsgrpName ILIKE '%Iluminación%'
-      * Incorrecto: WHERE ItmsgrpName ILIKE '%iluminacion%'
-    - SubFamilia: WHERE SubFamiliaName ILIKE '%Aqua%'
-    - Categoría: WHERE Categoria ILIKE '%cables%'
-    - Vendedor/Cliente: WHERE NombreVendedor ILIKE '%nombre%'
-    - NUNCA uses = para comparar texto (siempre ILIKE)
-    - ⚠️ CRITICAL: Los valores de ItmsgrpName en la base de datos TIENEN ACENTOS y MAYÚSCULAS ESPECÍFICAS.
-      Si el usuario dice "iluminacion" sin acento, transforma a "Iluminación" (con acento, capital I).
-      Lista exacta (CÓPIALA EXACTAMENTE): Iluminación, Material Eléctrico, Materiales Construc, Herramientas, Partes y Piezas, Energía Solar, Aluminio
-
-JERARQUÍA DE PRODUCTO (de mayor a menor detalle):
-- Familia (ItmsgrpName): Iluminación, Material Eléctrico, Materiales Construc, Herramientas, Partes y Piezas, Energía Solar, Aluminio
-  * Si el usuario dice "iluminacion" (sin acento), busca el equivalente con acento en la lista: "Iluminación"
-  * SIEMPRE usa ILIKE con el nombre EXACTO de la lista
-- SubFamilia (SubFamiliaName): Marcas como Aqua, Sylvania, etc.
-  * Si el usuario dice "marca X" o "subfamilia X" → usa SubFamiliaName ILIKE '%X%'
-- Categoría (Categoria): Valores específicos basados en productos
-  * Si el usuario dice "categoría X" → usa Categoria ILIKE '%X%'
-- SubCategoria (SubCategoria): Nivel más detallado
+    - Ejemplo: WHERE ItmsgrpName ILIKE '%iluminacion%'
+    - ILIKE es case-insensitive y funciona con búsquedas parciales
 
 13. IMPORTANTE: Toda columna en SELECT que no sea función de agregación DEBE estar en GROUP BY
     - Correcto: SELECT DATE_TRUNC('month', Fecha) as Mes, SUM(LineTotal) FROM sales GROUP BY DATE_TRUNC('month', Fecha)
@@ -570,7 +557,7 @@ Responde SOLO con el texto del análisis.`;
     }
   }
 
-  async processQuery(userQuery, metadata, conversationHistory = [], dateFilter = null, userFilter = null) {
+  async processQuery(userQuery, metadata, conversationHistory = [], dateFilter = null, userFilter = null, resolvedEntities = []) {
     if (!this.client) {
       throw new Error('LLM Service not initialized. Please set ANTHROPIC_API_KEY.');
     }
@@ -600,7 +587,7 @@ Responde SOLO con el texto del análisis.`;
         model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
         max_tokens: 1500,
         messages: messages,
-        system: this.getSystemPrompt(metadata, dateFilter, userFilter)
+        system: this.getSystemPrompt(metadata, dateFilter, userFilter, resolvedEntities)
       });
 
       const content = response.content[0].text;
