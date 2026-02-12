@@ -31,12 +31,12 @@ export function resolveEntities(query, metadata) {
 
   // Define which metadata columns to match against
   const dimensions = [
-    { column: 'ItmsgrpName',        values: metadata.grupos      || [] },
-    { column: 'SubFamiliaName',     values: metadata.subfamilias || [] },
-    { column: 'Categoria',          values: metadata.categorias  || [] },
-    { column: 'ProvinciaPrincipal', values: metadata.provincias  || [] },
-    { column: 'NombreSupervisor',   values: metadata.supervisores|| [] },
-    { column: 'NombreVendedor',     values: metadata.vendedores  || [] },
+    { column: 'ItmsgrpName',        values: metadata.grupos      || [], isPersonName: false },
+    { column: 'SubFamiliaName',     values: metadata.subfamilias || [], isPersonName: false },
+    { column: 'Categoria',          values: metadata.categorias  || [], isPersonName: false },
+    { column: 'ProvinciaPrincipal', values: metadata.provincias  || [], isPersonName: false },
+    { column: 'NombreSupervisor',   values: metadata.supervisores|| [], isPersonName: true },
+    { column: 'NombreVendedor',     values: metadata.vendedores  || [], isPersonName: true },
   ];
 
   // For each dimension, try to find matches in the user's query
@@ -56,8 +56,8 @@ export function resolveEntities(query, metadata) {
       }
 
       // For person names (NombreVendedor, NombreSupervisor), also match by individual words
-      // e.g., "Ronny" matches "Ronny Marcillo" because first word matches
-      if (dim.column === 'NombreVendedor' || dim.column === 'NombreSupervisor') {
+      // e.g., "Ronny" matches "Ronny Marcillo" because "ronny" is a word in the name
+      if (dim.isPersonName) {
         const nameParts = normalizedValue.split(/\s+/);
         for (const part of nameParts) {
           if (part.length < 3) continue; // Skip very short parts (like "de", "la")
