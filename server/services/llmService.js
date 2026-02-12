@@ -65,6 +65,7 @@ DATOS DISPONIBLES:
 - Subcategorías de producto (SubCategoria): ${metadata.subcategorias.slice(0, 20).join(', ')}${metadata.subcategorias.length > 20 ? ` ... y ${metadata.subcategorias.length - 20} más` : ''}
 - Ciudades principales (CiudadPrincipal): ${metadata.ciudades.slice(0, 15).join(', ')}${metadata.ciudades.length > 15 ? ` ... y ${metadata.ciudades.length - 15} más` : ''}
 - Total de registros: ${metadata.rowCount.toLocaleString()}
+- MONEDA: Todos los valores monetarios están en DÓLARES ($). Usa $ en reportes y análisis, NUNCA €
 
 ${resolvedEntities.length > 0 ? `VALORES EXACTOS DETECTADOS EN ESTA CONSULTA (ya resueltos):
 ${resolvedEntities.map(e => `- ${e.column} = '${e.exactValue}'`).join('\n')}
@@ -571,6 +572,9 @@ REGLAS:
 - Menciona valores numéricos específicos
 - Las anomalías son críticas - siempre incluye esta sección
 - Sé directo y accionable
+- IMPORTANTE: Todos los valores monetarios DEBEN estar en DÓLARES ($), NUNCA en euros (€)
+  * Reemplaza cualquier € con $ en tus números
+  * Ejemplo: $1,500 (correcto), NO €1,500 (incorrecto)
 
 Responde SOLO con el texto del análisis.`;
 
