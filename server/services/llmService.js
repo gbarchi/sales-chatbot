@@ -61,6 +61,9 @@ DATOS DISPONIBLES:
 - Familias de producto (ItmsgrpName): ${metadata.grupos.join(', ')}
 - Categorías de producto: ${metadata.categorias.slice(0, 15).join(', ')}${metadata.categorias.length > 15 ? ` ... y ${metadata.categorias.length - 15} más` : ''}
 - Provincias: ${metadata.provincias.slice(0, 10).join(', ')}${metadata.provincias.length > 10 ? ` ... y ${metadata.provincias.length - 10} más` : ''}
+- Subfamilias de producto (SubFamiliaName): ${metadata.subfamilias.slice(0, 20).join(', ')}${metadata.subfamilias.length > 20 ? ` ... y ${metadata.subfamilias.length - 20} más` : ''}
+- Subcategorías de producto (SubCategoria): ${metadata.subcategorias.slice(0, 20).join(', ')}${metadata.subcategorias.length > 20 ? ` ... y ${metadata.subcategorias.length - 20} más` : ''}
+- Ciudades principales (CiudadPrincipal): ${metadata.ciudades.slice(0, 15).join(', ')}${metadata.ciudades.length > 15 ? ` ... y ${metadata.ciudades.length - 15} más` : ''}
 - Total de registros: ${metadata.rowCount.toLocaleString()}
 
 ${resolvedEntities.length > 0 ? `VALORES EXACTOS DETECTADOS EN ESTA CONSULTA (ya resueltos):
