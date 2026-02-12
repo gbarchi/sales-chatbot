@@ -36,6 +36,7 @@ export function resolveEntities(query, metadata) {
     { column: 'Categoria',          values: metadata.categorias  || [] },
     { column: 'ProvinciaPrincipal', values: metadata.provincias  || [] },
     { column: 'NombreSupervisor',   values: metadata.supervisores|| [] },
+    { column: 'NombreVendedor',     values: metadata.vendedores  || [] },
   ];
 
   // For each dimension, try to find matches in the user's query
