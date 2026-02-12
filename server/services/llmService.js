@@ -120,6 +120,17 @@ ${(userFilter?.canViewMargin !== false) ? `3. Para margen de ganancia SIEMPRE us
         ELSE 'Canal Tradicional'
       END as Canal
 
+16. FILTROS IMPLÍCITOS EN LENGUAJE NATURAL:
+    Cuando el usuario mencione productos, categorías, clientes o lugares implícitamente
+    como sujeto/contexto (no como resultado a devolver), tradúcelo a cláusulas WHERE:
+    - "clientes que compraron tejas" → WHERE NombreProducto ILIKE '%teja%'
+    - "ventas de focos OVO" → WHERE NombreProducto ILIKE '%foco%' AND NombreProducto ILIKE '%OVO%'
+    - "cuánto vendió en Guayaquil" → WHERE ProvinciaPrincipal ILIKE '%guayaquil%'
+    - "facturas de materiales de construcción" → WHERE ItmsgrpName ILIKE '%construc%'
+    - "clientes de la costa" → WHERE ProvinciaPrincipal ILIKE '%pichincha%' OR ProvinciaPrincipal ILIKE '%guayas%' (según contexto)
+    Usa ILIKE con % en ambos lados para búsquedas parciales tolerantes a variaciones.
+    Estos filtros se combinan con AND cuando hay múltiples contextos implícitos.
+
 SELECCIÓN DE TIPO DE GRÁFICO - PRIORIDAD (usar el PRIMERO que aplique):
 
 🚨🚨🚨 PRIORIDAD MÁXIMA - DETECTAR SOLICITUD EXPLÍCITA 🚨🚨🚨

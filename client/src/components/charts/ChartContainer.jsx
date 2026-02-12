@@ -21,6 +21,36 @@ const COLORS = [
 function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
   const { user } = useAuth();
 
+  // Detect data granularity (daily, monthly, yearly) by analyzing xKey values
+  const detectGranularity = (xKey) => {
+    if (!data || data.length === 0 || !xKey) return 'auto';
+
+    const values = data.map(d => d[xKey]).filter(v => v && typeof v === 'string');
+    if (values.length === 0) return 'auto';
+
+    // Check if all values are dates (YYYY-MM-DD format)
+    const dateValues = values.filter(v => v.match(/^\d{4}-\d{2}-\d{2}/));
+    if (dateValues.length === 0) return 'auto';
+
+    // Extract days, months
+    const days = dateValues.map(v => v.substring(8, 10)); // Extract DD
+    const months = dateValues.map(v => v.substring(5, 7)); // Extract MM
+
+    // If all days are "01", it's monthly or yearly data
+    const allFirstDay = days.every(d => d === '01');
+    if (allFirstDay) {
+      // If all months are "01" too, it's yearly
+      const allJanuary = months.every(m => m === '01');
+      return allJanuary ? 'yearly' : 'monthly';
+    }
+
+    // If days vary, it's daily data
+    return 'daily';
+  };
+
+  const xKey = chartConfig?.xKey || Object.keys(data[0])[0];
+  const dataGranularity = detectGranularity(xKey);
+
   if (!data || data.length === 0) {
     return (
       <div className="chart-container empty">
@@ -66,9 +96,22 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
       // Check if it's a full date (YYYY-MM-DD)
       const fullDateMatch = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
       if (fullDateMatch) {
-        // For daily data, show just the day
+        const year = parseInt(fullDateMatch[1]);
+        const month = parseInt(fullDateMatch[2]) - 1; // 0-indexed
         const day = parseInt(fullDateMatch[3]);
-        return day.toString();
+        const monthNames = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
+        // Format based on detected granularity
+        if (dataGranularity === 'daily') {
+          return day.toString(); // Show just day (1-31)
+        } else if (dataGranularity === 'monthly') {
+          return monthNames[month]; // Show just month (ene, feb, etc.)
+        } else if (dataGranularity === 'yearly') {
+          return year.toString(); // Show just year (2025, 2026, etc.)
+        } else {
+          // Auto: default to month-year
+          return `${monthNames[month]} ${String(year).slice(-2)}`;
+        }
       }
 
       // Otherwise, show month-year (YYYY-MM)
@@ -91,7 +134,6 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
     return value;
   };
 
-  const xKey = chartConfig?.xKey || Object.keys(data[0])[0];
   const yKey = chartConfig?.yKey || Object.keys(data[0])[1];
   const yKeys = chartConfig?.yKeys || null; // For grouped bar charts (comparisons)
   const title = chartConfig?.title || 'Resultados';
