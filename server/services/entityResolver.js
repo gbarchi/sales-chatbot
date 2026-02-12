@@ -45,12 +45,30 @@ export function resolveEntities(query, metadata) {
       if (!value || value.length < 3) continue; // Skip null/empty and very short strings
 
       const normalizedValue = normalize(value);
-      // Check if this DB value's normalized form appears in the query
+
+      // Check if this DB value's normalized form appears in the query (exact substring match)
       if (normalizedQuery.includes(normalizedValue)) {
         resolved.push({
           column: dim.column,
-          exactValue: value  // Return the exact DB value, not the normalized version
+          exactValue: value
         });
+        continue;
+      }
+
+      // For person names (NombreVendedor, NombreSupervisor), also match by individual words
+      // e.g., "Ronny" matches "Ronny Marcillo" because first word matches
+      if (dim.column === 'NombreVendedor' || dim.column === 'NombreSupervisor') {
+        const nameParts = normalizedValue.split(/\s+/);
+        for (const part of nameParts) {
+          if (part.length < 3) continue; // Skip very short parts (like "de", "la")
+          if (normalizedQuery.includes(part)) {
+            resolved.push({
+              column: dim.column,
+              exactValue: value
+            });
+            break; // Only add once per value
+          }
+        }
       }
     }
   }
