@@ -82,6 +82,67 @@ app.delete('/api/admin/users/:id', authenticateToken, deleteUser);
 app.get('/api/admin/vendors', authenticateToken, getAvailableVendors);
 app.get('/api/admin/supervisors', authenticateToken, getAvailableSupervisors);
 
+// Settings routes (admin only)
+app.get('/api/admin/settings', authenticateToken, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ success: false, message: 'Sin permisos' });
+  const apiKey = userService.getSetting('anthropic_api_key') || '';
+  const model  = userService.getSetting('anthropic_model')  || process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001';
+  const maskedKey = apiKey.length > 6 ? '••••••••' + apiKey.slice(-6) : (apiKey ? '••••••' : '');
+  res.json({ success: true, maskedKey, model, hasKey: !!apiKey });
+});
+
+app.post('/api/admin/settings', authenticateToken, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ success: false, message: 'Sin permisos' });
+  const { apiKey, model } = req.body;
+
+  if (apiKey && apiKey.trim() && !apiKey.includes('•')) {
+    userService.setSetting('anthropic_api_key', apiKey.trim());
+  }
+  if (model && model.trim()) {
+    userService.setSetting('anthropic_model', model.trim());
+  }
+
+  const activeKey   = userService.getSetting('anthropic_api_key') || process.env.ANTHROPIC_API_KEY;
+  const activeModel = userService.getSetting('anthropic_model')   || process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001';
+  llmService.reinitialize(activeKey, activeModel);
+
+  res.json({ success: true, message: 'Configuración actualizada. El modelo está activo.' });
+});
+
+// Query logs stats route (admin only) — must be before /query-logs to avoid path ambiguity
+app.get('/api/admin/query-logs/stats', authenticateToken, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ success: false, message: 'Sin permisos' });
+  try {
+    const { date_from, date_to, username } = req.query;
+    const result = userService.getQueryStats({ date_from: date_from || null, date_to: date_to || null, username: username || null });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('Query Stats Error:', err);
+    res.status(500).json({ success: false, message: 'Error al obtener estadísticas' });
+  }
+});
+
+// Query logs route (admin only)
+app.get('/api/admin/query-logs', authenticateToken, (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ success: false, message: 'Sin permisos' });
+  }
+  try {
+    const { result_type, date_from, date_to, limit, offset } = req.query;
+    const result = userService.getQueryLogs({
+      result_type: result_type || null,
+      date_from:   date_from  || null,
+      date_to:     date_to    || null,
+      limit:       parseInt(limit)  || 50,
+      offset:      parseInt(offset) || 0
+    });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('Query Logs Error:', err);
+    res.status(500).json({ success: false, message: 'Error al obtener los logs' });
+  }
+});
+
 // Protected routes (require authentication if enabled)
 app.post('/api/chat', authenticateToken, handleChat);
 app.get('/api/metadata', authenticateToken, getMetadata);

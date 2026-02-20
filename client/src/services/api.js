@@ -164,6 +164,31 @@ export async function fetchSupervisors() {
   return response.json();
 }
 
+// ========== Settings API Functions ==========
+
+export async function fetchSettings() {
+  const response = await fetch(`${API_BASE}/admin/settings`, { credentials: 'include' });
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || 'Error al obtener configuración');
+  }
+  return response.json();
+}
+
+export async function saveSettings(settings) {
+  const response = await fetch(`${API_BASE}/admin/settings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(settings)
+  });
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || 'Error al guardar configuración');
+  }
+  return response.json();
+}
+
 // ========== Query History API Functions ==========
 
 export async function fetchQueryHistory(limit = 50) {
@@ -202,6 +227,46 @@ export async function clearQueryHistory() {
   if (!response.ok) {
     const data = await response.json();
     throw new Error(data.message || 'Error clearing history');
+  }
+
+  return response.json();
+}
+
+// ========== Query Logs API Functions ==========
+
+export async function fetchQueryLogs({ result_type = null, date_from = null, date_to = null, limit = 50, offset = 0 } = {}) {
+  const params = new URLSearchParams();
+  if (result_type) params.set('result_type', result_type);
+  if (date_from)   params.set('date_from', date_from);
+  if (date_to)     params.set('date_to', date_to);
+  params.set('limit',  String(limit));
+  params.set('offset', String(offset));
+
+  const response = await fetch(`${API_BASE}/admin/query-logs?${params.toString()}`, {
+    credentials: 'include'
+  });
+
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || 'Error fetching query logs');
+  }
+
+  return response.json();
+}
+
+export async function fetchQueryStats({ date_from = null, date_to = null, username = null } = {}) {
+  const params = new URLSearchParams();
+  if (date_from) params.set('date_from', date_from);
+  if (date_to)   params.set('date_to', date_to);
+  if (username)  params.set('username', username);
+
+  const response = await fetch(`${API_BASE}/admin/query-logs/stats?${params.toString()}`, {
+    credentials: 'include'
+  });
+
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || 'Error fetching query stats');
   }
 
   return response.json();

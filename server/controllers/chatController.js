@@ -3,6 +3,38 @@ import llmService from '../services/llmService.js';
 import { userService } from '../services/userService.js';
 import { resolveEntities } from '../services/entityResolver.js';
 
+// Apply explicit chart type request if LLM missed the userExplicitRequest flag.
+// Mirrors the phrasing list from the system prompt so both sources stay in sync.
+function applyExplicitChartRequest(query, llmResponse) {
+  if (!llmResponse?.chartConfig || llmResponse.chartConfig.userExplicitRequest) return;
+
+  const msgLower = query.toLowerCase();
+  const checks = [
+    {
+      type: 'table',
+      phrases: [
+        'en una tabla', 'en tabla', 'como tabla', 'formato tabla', 'quiero tabla',
+        'quiero una tabla', 'muéstrame en tabla', 'muéstrame como tabla', 'dame una tabla',
+        'en formato de tabla', 'tabla detallada', 'en formato tabla', 'detalle', 'detalle por',
+        'listado', 'listado de', 'a que clientes', 'a que productos', 'a que provincias',
+        'por cada cliente', 'para cada cliente', 'de cada cliente', 'cuales son los clientes',
+        'lista de clientes', 'quiénes son los clientes', 'quienes son los clientes'
+      ]
+    },
+    { type: 'bar',  phrases: ['en barras', 'en un gráfico de barras', 'gráfico de barras', 'como barras', 'en forma de barras'] },
+    { type: 'line', phrases: ['en líneas', 'en un gráfico de líneas', 'gráfico de líneas', 'como líneas'] },
+    { type: 'pie',  phrases: ['en pie', 'pie chart', 'gráfico circular', 'gráfico de pastel', 'como pastel'] },
+  ];
+
+  for (const { type, phrases } of checks) {
+    if (phrases.some(p => msgLower.includes(p))) {
+      llmResponse.chartType = type;
+      llmResponse.chartConfig.userExplicitRequest = true;
+      return;
+    }
+  }
+}
+
 // Detect if a query mentions an ambiguous vendedor first name (matches multiple people)
 function detectAmbiguousVendedor(query, vendedores) {
   const firstNameMap = {};
@@ -116,10 +148,34 @@ export async function handleChat(req, res) {
     }
   };
 
+  // --- Query Logging setup ---
+  const startTime = Date.now();
+  const logData = {
+    user_id:           req.user?.id       ?? null,
+    username:          req.user?.username ?? null,
+    user_query:        '',
+    resolved_entities: null,
+    result_type:       'error',  // default; overwritten at each return path
+    llm_sql:           null,
+    llm_chart_type:    null,
+    llm_chart_config:  null,
+    llm_explanation:   null,
+    llm_raw_response:  null,
+    error_message:     null,
+    result_row_count:  null,
+    duration_ms:       null,
+    date_filter:       null
+  };
+
   try {
     const { query, conversationHistory = [], dateFilter = null } = req.body;
 
+    logData.user_query  = query || '';
+    logData.date_filter = dateFilter;
+
     if (!query || typeof query !== 'string') {
+      logData.result_type   = 'validation_error';
+      logData.error_message = 'Query is required';
       return safeSend({ error: 'Query is required' }, 400);
     }
 
@@ -130,6 +186,8 @@ export async function handleChat(req, res) {
     // This prevents LLM from inventing alternative margin calculations
     const intentError = checkMarginQueryIntent(query, userFilter?.canViewMargin);
     if (intentError) {
+      logData.result_type   = 'blocked';
+      logData.error_message = intentError.error;
       return safeSend({
         type: 'error',
         message: intentError.error,
@@ -149,6 +207,7 @@ export async function handleChat(req, res) {
     // Check for ambiguous vendedor name before calling LLM
     const ambiguous = detectAmbiguousVendedor(query, vendedoresForYear);
     if (ambiguous) {
+      logData.result_type = 'clarification';
       return safeSend({
         type: 'clarification',
         question: ambiguous.question,
@@ -160,12 +219,21 @@ export async function handleChat(req, res) {
 
     // Resolve entity references (e.g., "iluminacion" → "Iluminación") before calling LLM
     const resolvedEntities = resolveEntities(query, metadata);
+    if (resolvedEntities && resolvedEntities.length > 0) {
+      logData.resolved_entities = resolvedEntities;
+    }
 
     // Process query with LLM (including conversation history, date filter, and user filter for context)
     const llmResponse = await llmService.processQuery(query, metadata, conversationHistory, dateFilter, userFilter, resolvedEntities);
     if (clientDisconnected) return;
 
+    // Apply explicit chart type override if LLM missed the userExplicitRequest flag
+    applyExplicitChartRequest(query, llmResponse);
+
     if (llmResponse.error) {
+      logData.result_type   = 'error';
+      logData.error_message = llmResponse.error;
+      logData.llm_raw_response = llmResponse;
       return safeSend({
         type: 'error',
         message: llmResponse.error,
@@ -173,8 +241,17 @@ export async function handleChat(req, res) {
       });
     }
 
+    // Capture LLM response fields (common to all non-error paths)
+    logData.llm_raw_response = llmResponse;
+    logData.llm_sql          = llmResponse.sql          ?? null;
+    logData.llm_chart_type   = llmResponse.chartType    ?? null;
+    logData.llm_chart_config = llmResponse.chartConfig  ?? null;
+    logData.llm_explanation  = llmResponse.explanation  ?? llmResponse.message ?? null;
+
     // Handle CONVERSATIONAL responses (no SQL needed)
     if (llmResponse.type === 'conversational') {
+      logData.result_type      = 'conversational';
+      logData.result_row_count = 0;
       saveToHistory(req.user?.id, query);
       return safeSend({
         type: 'conversational',
@@ -193,6 +270,8 @@ export async function handleChat(req, res) {
         // Check margin access restrictions for each query
         const marginCheckError = checkMarginAccess(queryItem.sql, userFilter?.canViewMargin);
         if (marginCheckError) {
+          logData.result_type   = 'blocked';
+          logData.error_message = marginCheckError.error;
           return safeSend({
             type: 'error',
             message: marginCheckError.error,
@@ -233,6 +312,10 @@ export async function handleChat(req, res) {
 
       // If all multi-queries returned empty results, show a helpful message
       if (results.length === 0) {
+        logData.result_type      = 'empty';
+        logData.result_row_count = 0;
+        logData.llm_sql          = llmResponse.queries?.[0]?.sql ?? null;
+        logData.llm_chart_type   = llmResponse.queries?.[0]?.chartType ?? null;
         saveToHistory(req.user?.id, query);
         return safeSend({
           type: 'conversational',
@@ -241,7 +324,16 @@ export async function handleChat(req, res) {
         });
       }
 
+      logData.result_type      = 'multi';
+      logData.result_row_count = results.reduce((sum, r) => sum + (r.rowCount || 0), 0);
+      logData.llm_sql          = llmResponse.queries?.[0]?.sql ?? null;
+      logData.llm_chart_type   = llmResponse.queries?.[0]?.chartType ?? null;
       saveToHistory(req.user?.id, query);
+
+      if (results.length > 0) {
+        const last = results[results.length - 1];
+        last.followUps = await llmService.generateFollowUps(query, last.data, last.chartConfig);
+      }
 
       return safeSend({
         type: 'multi',
@@ -255,6 +347,8 @@ export async function handleChat(req, res) {
     // Check margin access restrictions for vendors and supervisors
     const marginCheckError = checkMarginAccess(llmResponse.sql, userFilter?.canViewMargin);
     if (marginCheckError) {
+      logData.result_type   = 'blocked';
+      logData.error_message = marginCheckError.error;
       return safeSend({
         type: 'error',
         message: marginCheckError.error,
@@ -267,6 +361,8 @@ export async function handleChat(req, res) {
       data = await dataService.executeQuery(llmResponse.sql);
     } catch (sqlError) {
       console.error('SQL Error:', sqlError);
+      logData.result_type   = 'error';
+      logData.error_message = sqlError.message;
       return safeSend({
         type: 'error',
         message: 'Error ejecutando la consulta. Por favor intenta reformular tu pregunta.'
@@ -277,6 +373,8 @@ export async function handleChat(req, res) {
 
     // If no data found, return a helpful message with the SQL so user can debug
     if (!data || data.length === 0) {
+      logData.result_type      = 'empty';
+      logData.result_row_count = 0;
       saveToHistory(req.user?.id, query);
       return safeSend({
         type: 'conversational',
@@ -292,9 +390,13 @@ export async function handleChat(req, res) {
       analysis = await llmService.analyzeResults(query, data, llmResponse.chartConfig);
     }
 
+    const followUps = await llmService.generateFollowUps(query, data, llmResponse.chartConfig);
+
     if (clientDisconnected) return;
 
     // Save to history on successful query
+    logData.result_type      = 'success';
+    logData.result_row_count = data.length;
     saveToHistory(req.user?.id, query);
 
     // Format response
@@ -305,17 +407,25 @@ export async function handleChat(req, res) {
       chartConfig: llmResponse.chartConfig,
       explanation: llmResponse.explanation,
       analysis: analysis,
+      followUps,
       sql: llmResponse.sql,
       rowCount: data.length
     });
 
   } catch (error) {
     console.error('Chat Error:', error);
+    logData.result_type   = 'error';
+    logData.error_message = error.message;
     safeSend({
       type: 'error',
       message: 'Error interno del servidor',
       details: error.message
     }, 500);
+  } finally {
+    logData.duration_ms = Date.now() - startTime;
+    setImmediate(() => {
+      try { userService.saveQueryLog(logData); } catch (e) { /* silent */ }
+    });
   }
 }
 
@@ -353,6 +463,16 @@ export async function getSuggestedQueries(req, res) {
   // Only show Rentabilidad queries if user has margin access
   if (userFilter.canViewMargin === true) {
     queries.push({ text: 'Margen promedio por supervisor', category: 'Rentabilidad' });
+  }
+
+  // Visit planning and risk suggestions (most useful for vendedores and supervisors)
+  queries.push({ text: 'Plan mis visitas para este mes', category: 'Planificación' });
+  queries.push({ text: 'Clientes en riesgo de abandono', category: 'Riesgo' });
+
+  // Map suggestion (only shown if clients table is available)
+  const metadata = await dataService.getMetadata();
+  if (metadata.hasClients) {
+    queries.push({ text: 'Muéstrame mis clientes en el mapa', category: 'Mapa' });
   }
 
   res.json({ queries });

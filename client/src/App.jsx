@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import 'leaflet/dist/leaflet.css';
 import Layout from './components/common/Layout';
 import ChatPanel from './components/chat/ChatPanel';
 import LoginPage from './components/auth/LoginPage';
 import AdminPanel from './components/admin/AdminPanel';
+import QueryLogsPanel from './components/admin/QueryLogsPanel';
 import { useAuth } from './context/AuthContext';
 import { fetchSuggestions, fetchMetadata } from './services/api';
 
@@ -14,6 +16,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [dateFilter, setDateFilter] = useState({ id: 'all', label: 'Todo', range: null });
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [showQueryLogs, setShowQueryLogs] = useState(false);
 
   // useEffect must be before any conditional returns (React hooks rules)
   useEffect(() => {
@@ -164,6 +167,7 @@ function App() {
       botMessage.sql = response.sql;
       botMessage.rowCount = response.rowCount;
       botMessage.analysis = response.analysis;
+      botMessage.followUps = response.followUps;
     }
 
     setMessages(prev => [...prev, botMessage]);
@@ -176,8 +180,9 @@ function App() {
   };
 
   return (
-    <Layout user={user} onLogout={logout} onAdminClick={() => setShowAdminPanel(true)}>
+    <Layout user={user} onLogout={logout} onAdminClick={() => setShowAdminPanel(true)} onLogsClick={() => setShowQueryLogs(true)}>
       {showAdminPanel && <AdminPanel onClose={() => setShowAdminPanel(false)} />}
+      {showQueryLogs  && <QueryLogsPanel onClose={() => setShowQueryLogs(false)} />}
       <div className="app-container">
         <ChatPanel
           messages={messages}

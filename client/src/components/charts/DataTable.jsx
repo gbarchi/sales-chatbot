@@ -63,13 +63,16 @@ function DataTable({ data }) {
       }
 
       // Check if it's a percentage
-      if (keyLower.includes('margen') || keyLower.includes('percent') || keyLower.includes('_pct') || keyLower.includes('crecimiento')) {
+      if (keyLower.includes('margen') || keyLower.includes('percent') || keyLower.includes('porcentaje') ||
+          keyLower.includes('participacion') || keyLower.includes('_pct') || keyLower.includes('pct_') ||
+          keyLower.includes('crecimiento') || keyLower.includes('share')) {
         return `${value.toFixed(2)}%`;
       }
 
       // Check if it's a monetary value based on column name
       const monetaryKeys = ['ventas', 'venta', 'linetotal', 'linecost', 'cost', 'price', 'precio',
-                           'monto', 'valor', 'ingreso', 'revenue', 'total_ventas', 'total_monto'];
+                           'monto', 'valor', 'ingreso', 'revenue', 'total_ventas', 'total_monto',
+                           'ticket', 'promedio_mensual', 'promedio_venta', 'promedio_factura'];
       if (monetaryKeys.some(k => keyLower.includes(k))) {
         return new Intl.NumberFormat('es-EC', {
           style: 'currency',

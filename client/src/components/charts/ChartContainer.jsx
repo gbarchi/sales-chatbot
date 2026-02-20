@@ -10,6 +10,7 @@ import {
   LabelList, ReferenceLine, Rectangle
 } from 'recharts';
 import { ResponsiveHeatMap } from '@nivo/heatmap';
+import { MapContainer, TileLayer, CircleMarker, Popup, Polyline, useMap } from 'react-leaflet';
 import DataTable from './DataTable';
 import { useAuth } from '../../context/AuthContext';
 
@@ -17,6 +18,159 @@ const COLORS = [
   '#dc2626', '#ef4444', '#f87171', '#b91c1c', '#991b1b',
   '#fca5a5', '#7f1d1d', '#450a0a', '#fee2e2', '#fecaca'
 ];
+
+// ── FitBounds (must be at module level — hooks require stable component identity) ──
+function FitBounds({ points }) {
+  const map = useMap();
+  React.useEffect(() => {
+    if (points.length > 0) {
+      const lats = points.map(p => p.lat);
+      const lngs = points.map(p => p.lng);
+      map.fitBounds([
+        [Math.min(...lats), Math.min(...lngs)],
+        [Math.max(...lats), Math.max(...lngs)]
+      ], { padding: [30, 30] });
+    }
+  }, [points, map]);
+  return null;
+}
+
+// ── MapChart ─────────────────────────────────────────────────────────────────
+function MapChart({ validPoints, latKey, lngKey, labelKey, valueKey, getMarkerColor, planRoute, haversine, chartConfig }) {
+  const [routeMode, setRouteMode] = React.useState(false);
+  const [routeResult, setRouteResult] = React.useState(null);
+
+  const fmtValue = (row) => {
+    if (!valueKey || row[valueKey] == null) return null;
+    const v = Number(row[valueKey]);
+    const key = valueKey.toLowerCase();
+    if (key.includes('venta') || key.includes('total') || key.includes('costo') || key.includes('promedio')) {
+      return `$${Math.round(v).toLocaleString()}`;
+    }
+    if (key.includes('dias') || key.includes('días')) return `${Math.round(v)} días`;
+    return v.toLocaleString();
+  };
+
+  const humanize = (key) => {
+    const labels = {
+      TotalVenta: 'Total venta', LineTotal: 'Total venta',
+      DiasSinComprar: 'Días sin comprar', DiasInactivo: 'Días inactivo',
+      UltimaCompra: 'Última compra', FechaUltimaCompra: 'Última compra',
+      NombreVendedor: 'Vendedor', NombreSupervisor: 'Supervisor',
+      TotalFacturas: 'Facturas', NumFacturas: 'Facturas',
+      PromedioMensual: 'Promedio mensual', Promedio: 'Promedio',
+      Cantidad: 'Cantidad', Margen: 'Margen',
+    };
+    return labels[key] || key.replace(/([A-Z])/g, ' $1').trim();
+  };
+
+  const points = validPoints.map(r => ({
+    ...r,
+    lat: Number(r[latKey]),
+    lng: Number(r[lngKey]),
+    label: r[labelKey] || 'Cliente',
+    color: getMarkerColor(r[valueKey]),
+  }));
+
+  const handlePlanRoute = () => {
+    const result = planRoute(points);
+    setRouteResult(result);
+    setRouteMode(true);
+  };
+
+  const displayPoints = routeMode && routeResult ? routeResult.ordered : points;
+  const center = [
+    points.reduce((s, p) => s + p.lat, 0) / points.length,
+    points.reduce((s, p) => s + p.lng, 0) / points.length,
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* Controls */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 13, color: '#64748b' }}>
+          {points.length} cliente{points.length !== 1 ? 's' : ''}
+        </span>
+        {valueKey && (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 11 }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#10b981', display: 'inline-block' }} /> Alto
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#f59e0b', display: 'inline-block', marginLeft: 4 }} /> Medio
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ef4444', display: 'inline-block', marginLeft: 4 }} /> Bajo
+          </div>
+        )}
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          {routeMode ? (
+            <button onClick={() => { setRouteMode(false); setRouteResult(null); }} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid #e2e8f0', background: 'white', fontSize: 12, cursor: 'pointer' }}>
+              Cancelar ruta
+            </button>
+          ) : (
+            <button onClick={handlePlanRoute} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid #3b82f6', background: '#eff6ff', color: '#2563eb', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>
+              Planificar ruta
+            </button>
+          )}
+        </div>
+      </div>
+
+      {routeMode && routeResult && (
+        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '8px 14px', fontSize: 12, color: '#1d4ed8' }}>
+          Ruta optimizada: <strong>{routeResult.ordered.length} visitas</strong> · ~<strong>{routeResult.totalKm} km</strong> estimados
+        </div>
+      )}
+
+      {/* Map */}
+      <div style={{ height: 440, borderRadius: 10, overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+        <MapContainer center={center} zoom={10} style={{ height: '100%', width: '100%' }} scrollWheelZoom={true}>
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a>'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          <FitBounds points={points} />
+
+          {/* Route line */}
+          {routeMode && routeResult && (
+            <Polyline
+              positions={routeResult.ordered.map(p => [p.lat, p.lng])}
+              pathOptions={{ color: '#3b82f6', weight: 2, dashArray: '6 4', opacity: 0.7 }}
+            />
+          )}
+
+          {/* Markers */}
+          {displayPoints.map((point, i) => (
+            <CircleMarker
+              key={i}
+              center={[point.lat, point.lng]}
+              radius={routeMode ? 10 : 8}
+              pathOptions={{ color: point.color, fillColor: point.color, fillOpacity: 0.85, weight: 2 }}
+            >
+              <Popup>
+                <div style={{ fontSize: 13, minWidth: 160 }}>
+                  {routeMode && <div style={{ fontWeight: 700, color: '#3b82f6', marginBottom: 4 }}>Visita #{i + 1}</div>}
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>{point.label}</div>
+                  {point.Ciudad && <div style={{ color: '#64748b', fontSize: 12 }}>📍 {point.Ciudad}{point.Provincia ? `, ${point.Provincia}` : ''}</div>}
+                  {valueKey && fmtValue(point) && (
+                    <div style={{ marginTop: 4, color: '#475569', fontSize: 12 }}>
+                      {humanize(valueKey)}: <strong>{fmtValue(point)}</strong>
+                    </div>
+                  )}
+                  {/* Show other relevant fields (excluding already-shown keys) */}
+                  {Object.entries(point).filter(([k]) =>
+                    !['lat','lng','label','color',latKey,lngKey,labelKey,valueKey,'CardCode','Cardname','Lat','Lng','Ciudad','Provincia','NombreVendedor'].includes(k)
+                    && typeof point[k] !== 'object'
+                  ).slice(0, 3).map(([k, v]) => (
+                    <div key={k} style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>
+                      {humanize(k)}: {typeof v === 'number' && (k.toLowerCase().includes('venta') || k.toLowerCase().includes('total')) ? `$${Math.round(v).toLocaleString()}` : String(v ?? '—')}
+                    </div>
+                  ))}
+                </div>
+              </Popup>
+            </CircleMarker>
+          ))}
+        </MapContainer>
+      </div>
+    </div>
+  );
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
   const { user } = useAuth();
@@ -70,7 +224,7 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
   const formatValue = (value) => {
     if (value === null || value === undefined) return '—';
     if (typeof value === 'number') {
-      const isWholeNumber = value % 1 === 0;
+      const isWholeNumber = Math.abs(value - Math.round(value)) < 0.01;
       if (isWholeNumber) {
         if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
         if (value >= 1000) return `${(value / 1000).toFixed(1)}K`;
@@ -140,6 +294,12 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
 
   // Colors for grouped bar charts
   const COMPARISON_COLORS = ['#3b82f6', '#dc2626', '#22c55e', '#f59e0b'];
+
+  // Colors for multi-series line charts (8 distinct colors)
+  const MULTI_LINE_COLORS = [
+    '#3b82f6', '#dc2626', '#22c55e', '#f59e0b',
+    '#8b5cf6', '#ec4899', '#14b8a6', '#f97316',
+  ];
 
   // Determine effective chart type - override LLM decision based on title/data
   const getEffectiveChartType = () => {
@@ -296,6 +456,73 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
                   strokeWidth={2}
                   dot={{ r: 4 }}
                   activeDot={{ r: 6 }}
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        );
+      }
+
+      case 'multi-line': {
+        // Multi-series line chart: one line per category value (family, supervisor, province, etc.)
+        // SQL is long-format (time × category × value); frontend pivots to wide format for Recharts
+        const seriesKey = chartConfig?.seriesKey;
+        const valueKey  = chartConfig?.valueKey || yKey;
+
+        if (!seriesKey || !data[0]?.[seriesKey]) {
+          return (
+            <div style={{ padding: 24, color: '#dc2626', textAlign: 'center' }}>
+              Configuración inválida: falta <code>seriesKey</code> en chartConfig.
+            </div>
+          );
+        }
+
+        // Collect all unique series values, sorted for consistent color assignment
+        const seriesValues = [...new Set(data.map(d => d[seriesKey]))].sort();
+
+        // Pivot: long-format rows → one object per xKey value with one key per series
+        const pivotMap = {};
+        for (const row of data) {
+          const x = row[xKey];
+          if (!pivotMap[x]) pivotMap[x] = { [xKey]: x };
+          pivotMap[x][row[seriesKey]] = row[valueKey];
+        }
+        const pivotedData = Object.values(pivotMap)
+          .sort((a, b) => String(a[xKey]).localeCompare(String(b[xKey])));
+
+        const ML_MONTH_NAMES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+        const formatMLXAxis = (value) => {
+          if (typeof value === 'number' && value >= 1 && value <= 12) return ML_MONTH_NAMES[value - 1];
+          return formatXAxis(value);
+        };
+
+        return (
+          <ResponsiveContainer width="100%" height={420}>
+            <LineChart data={pivotedData} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+              <XAxis
+                dataKey={xKey}
+                tickFormatter={formatMLXAxis}
+                angle={-45}
+                textAnchor="end"
+                height={80}
+                tick={{ fontSize: 12 }}
+              />
+              <YAxis tickFormatter={formatValue} tick={{ fontSize: 12 }} />
+              <Tooltip
+                formatter={(value, name) => [formatValue(value), name]}
+                labelFormatter={formatMLXAxis}
+              />
+              <Legend />
+              {seriesValues.map((seriesVal, index) => (
+                <Line
+                  key={seriesVal}
+                  type="monotone"
+                  dataKey={seriesVal}
+                  stroke={MULTI_LINE_COLORS[index % MULTI_LINE_COLORS.length]}
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 5 }}
                 />
               ))}
             </LineChart>
@@ -836,6 +1063,209 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
             />
           </div>
         );
+      }
+
+      case 'plan': {
+        const fmt = (n) => `$${Math.round(n || 0).toLocaleString()}`;
+
+        // Relative classification using both value (promedio_mensual) and recency (dias_sin_compra)
+        const activeClients = data
+          .filter(r => (r.dias_sin_compra ?? 0) < 45)
+          .sort((a, b) => (b.promedio_mensual ?? 0) - (a.promedio_mensual ?? 0));
+        const activeCount = activeClients.length;
+
+        const getCategory = (row) => {
+          const dias = row.dias_sin_compra ?? 0;
+          if (dias >= 90) return { label: 'REACTIVACIÓN', color: '#7c3aed', bg: '#ede9fe' };
+          if (dias >= 45)  return { label: 'RECUPERACIÓN', color: '#ea580c', bg: '#ffedd5' };
+          // For active clients (<45 days): classify by relative promedio_mensual rank
+          const rank = activeClients.findIndex(r => r === row);
+          const pct = activeCount > 1 ? rank / (activeCount - 1) : 0;
+          if (pct <= 0.25) return { label: 'CLIENTE A', color: '#059669', bg: '#d1fae5' };
+          if (pct <= 0.60) return { label: 'CLIENTE B', color: '#0284c7', bg: '#e0f2fe' };
+          return { label: 'CLIENTE C', color: '#64748b', bg: '#f1f5f9' };
+        };
+
+        return (
+          <div style={{ padding: '8px 0' }}>
+            {data.map((row, i) => {
+              const dias = row.dias_sin_compra ?? row[chartConfig?.daysKey] ?? 0;
+              const avg = row.promedio_mensual ?? row[chartConfig?.avgKey] ?? 0;
+              const cliente = row.cliente ?? row[chartConfig?.clientKey] ?? `Cliente ${i + 1}`;
+              const ciudad = row.ciudad ?? row[chartConfig?.cityKey] ?? '';
+              const priority = getCategory(row);
+
+              return (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', background: 'white', borderRadius: 10, marginBottom: 7, border: '1px solid #e2e8f0', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: '#cbd5e1', minWidth: 26, textAlign: 'center' }}>#{i + 1}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cliente}</div>
+                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                      {ciudad && <>📍 {ciudad} · </>}
+                      Última compra: <strong>{dias}d</strong> · Promedio mensual: <strong>{fmt(avg)}</strong>
+                    </div>
+                  </div>
+                  <span style={{ padding: '3px 9px', borderRadius: 20, fontSize: 10, fontWeight: 700, background: priority.bg, color: priority.color, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                    {priority.label}
+                  </span>
+                </div>
+              );
+            })}
+
+            {data.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '32px 0', color: '#94a3b8', fontSize: 13 }}>
+                No se encontraron clientes activos en los últimos 4 meses.
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      case 'churn': {
+        const fmt = (n) => `$${Math.round(n || 0).toLocaleString()}`;
+
+        const getRisk = (factor) => {
+          if (factor >= 2.0) return { label: 'ALTO RIESGO', color: '#dc2626', bg: '#fee2e2' };
+          return { label: 'RIESGO MEDIO', color: '#d97706', bg: '#fef3c7' };
+        };
+
+        const totalRisk = data.reduce((s, r) => s + (r.promedio_mensual || r[chartConfig?.avgKey] || 0), 0);
+
+        return (
+          <div style={{ padding: '8px 0' }}>
+            {data.length > 0 && (
+              <div style={{ background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 10, padding: '10px 14px', marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 13, color: '#9f1239', fontWeight: 600 }}>
+                  ⚠️ {data.length} cliente{data.length !== 1 ? 's' : ''} en riesgo
+                </span>
+                <span style={{ fontSize: 13, color: '#9f1239' }}>
+                  {fmt(totalRisk)}/mes en riesgo
+                </span>
+              </div>
+            )}
+
+            {data.map((row, i) => {
+              const cliente = row.cliente ?? row[chartConfig?.clientKey] ?? `Cliente ${i + 1}`;
+              const ciudad = row.ciudad ?? row[chartConfig?.cityKey] ?? '';
+              const dias = row.dias_sin_compra ?? row[chartConfig?.daysKey] ?? 0;
+              const freq = row.frecuencia_dias ?? row[chartConfig?.freqKey] ?? 0;
+              const factor = row.factor_riesgo ?? row[chartConfig?.riskKey] ?? 0;
+              const avg = row.promedio_mensual ?? row[chartConfig?.avgKey] ?? 0;
+              const risk = getRisk(factor);
+
+              return (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', background: 'white', borderRadius: 10, marginBottom: 7, border: '1px solid #e2e8f0', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: '#cbd5e1', minWidth: 26, textAlign: 'center' }}>#{i + 1}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cliente}</div>
+                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                      {ciudad && <>📍 {ciudad} · </>}
+                      Compra cada ~<strong>{Math.round(freq)}d</strong> · Lleva <strong>{dias}d</strong> sin comprar · <strong style={{ color: risk.color }}>{Number(factor).toFixed(2)}×</strong> su frecuencia
+                    </div>
+                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>
+                      Promedio mensual: <strong>{fmt(avg)}</strong>
+                    </div>
+                  </div>
+                  <span style={{ padding: '3px 9px', borderRadius: 20, fontSize: 10, fontWeight: 700, background: risk.bg, color: risk.color, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                    {risk.label}
+                  </span>
+                </div>
+              );
+            })}
+
+            {data.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '32px 0', color: '#94a3b8', fontSize: 13 }}>
+                No se encontraron clientes en riesgo. ¡Todos al día! 🎉
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      case 'map': {
+        const latKey = chartConfig?.latKey || 'Lat';
+        const lngKey = chartConfig?.lngKey || 'Lng';
+        const labelKey = chartConfig?.labelKey || 'Cardname';
+        const valueKey = chartConfig?.valueKey;
+
+        // Filter rows with valid coordinates
+        const validPoints = data.filter(r =>
+          r[latKey] != null && r[lngKey] != null &&
+          !isNaN(Number(r[latKey])) && !isNaN(Number(r[lngKey]))
+        );
+
+        if (validPoints.length === 0) {
+          return (
+            <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+              No se encontraron clientes con coordenadas válidas.
+            </div>
+          );
+        }
+
+        // Color scale based on valueKey percentiles
+        const getMarkerColor = (() => {
+          if (!valueKey) return () => '#3b82f6';
+          const vals = validPoints.map(r => Number(r[valueKey]) || 0).sort((a, b) => a - b);
+          const p33 = vals[Math.floor(vals.length * 0.33)];
+          const p66 = vals[Math.floor(vals.length * 0.66)];
+          return (val) => {
+            const v = Number(val) || 0;
+            if (v >= p66) return '#10b981';   // green — high
+            if (v >= p33) return '#f59e0b';   // amber — mid
+            return '#ef4444';                  // red — low / no data
+          };
+        })();
+
+        // Nearest-neighbor route planning (Haversine distance)
+        const haversine = (a, b) => {
+          const R = 6371;
+          const dLat = (b.lat - a.lat) * Math.PI / 180;
+          const dLng = (b.lng - a.lng) * Math.PI / 180;
+          const h = Math.sin(dLat/2)**2 +
+                    Math.cos(a.lat * Math.PI/180) * Math.cos(b.lat * Math.PI/180) * Math.sin(dLng/2)**2;
+          return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+        };
+
+        const planRoute = (points) => {
+          if (points.length <= 1) return { ordered: points, totalKm: 0 };
+          const centroid = {
+            lat: points.reduce((s, p) => s + p.lat, 0) / points.length,
+            lng: points.reduce((s, p) => s + p.lng, 0) / points.length,
+          };
+          const startIdx = points.reduce((best, p, i) =>
+            haversine(p, centroid) < haversine(points[best], centroid) ? i : best, 0);
+
+          const ordered = [];
+          const remaining = [...points];
+          let current = remaining.splice(startIdx, 1)[0];
+          ordered.push(current);
+          let totalKm = 0;
+
+          while (remaining.length > 0) {
+            let nearestIdx = 0;
+            let nearestDist = haversine(current, remaining[0]);
+            for (let i = 1; i < remaining.length; i++) {
+              const d = haversine(current, remaining[i]);
+              if (d < nearestDist) { nearestDist = d; nearestIdx = i; }
+            }
+            totalKm += nearestDist;
+            current = remaining.splice(nearestIdx, 1)[0];
+            ordered.push(current);
+          }
+          return { ordered, totalKm: Math.round(totalKm) };
+        };
+
+        return <MapChart
+          validPoints={validPoints}
+          latKey={latKey}
+          lngKey={lngKey}
+          labelKey={labelKey}
+          valueKey={valueKey}
+          getMarkerColor={getMarkerColor}
+          planRoute={planRoute}
+          haversine={haversine}
+          chartConfig={chartConfig}
+        />;
       }
 
       case 'table':

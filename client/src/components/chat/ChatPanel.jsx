@@ -9,6 +9,22 @@ function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSugge
   const messagesEndRef = useRef(null);
   const abortControllerRef = useRef(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const timerRef = useRef(null);
+
+  // Start/stop elapsed timer with isLoading
+  useEffect(() => {
+    if (isLoading) {
+      setElapsedSeconds(0);
+      timerRef.current = setInterval(() => {
+        setElapsedSeconds(s => s + 1);
+      }, 1000);
+    } else {
+      clearInterval(timerRef.current);
+      setElapsedSeconds(0);
+    }
+    return () => clearInterval(timerRef.current);
+  }, [isLoading]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -38,11 +54,15 @@ function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSugge
     }
   }, [setIsLoading]);
 
-  const handleClarificationSelect = useCallback((selectedName, searchTerm, originalQuery) => {
+  const handleClarificationSelect = (selectedName, searchTerm, originalQuery) => {
     const regex = new RegExp(searchTerm, 'gi');
     const clarifiedQuery = originalQuery.replace(regex, selectedName);
     handleSendMessage(clarifiedQuery);
-  }, []);
+  };
+
+  const handleFollowUpClick = (query) => {
+    handleSendMessage(query);
+  };
 
   const handleSendMessage = async (message) => {
     // Cancel any existing request
@@ -83,30 +103,6 @@ function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSugge
 
       const response = await sendChatMessage(message, conversationHistory, dateFilter, abortControllerRef.current.signal);
 
-      // Detect explicit chart type requests in the user's message
-      // and inject userExplicitRequest flag if LLM missed it
-      if (response && response.chartConfig && !response.chartConfig.userExplicitRequest) {
-        const msgLower = message.toLowerCase();
-        const explicitTablePhrases = ['en una tabla', 'en tabla', 'como tabla', 'formato tabla', 'quiero tabla', 'quiero una tabla', 'muéstrame en tabla', 'muéstrame como tabla', 'dame una tabla', 'en formato de tabla', 'tabla detallada', 'en formato tabla', 'detalle', 'detalle por', 'listado', 'listado de', 'a que clientes', 'a que productos', 'a que provincias', 'por cada cliente', 'para cada cliente', 'de cada cliente', 'cuales son los clientes', 'lista de clientes', 'quiénes son los clientes', 'quienes son los clientes'];
-        const explicitBarPhrases = ['en barras', 'en un gráfico de barras', 'gráfico de barras', 'como barras', 'en forma de barras'];
-        const explicitLinePhrases = ['en líneas', 'en un gráfico de líneas', 'gráfico de líneas', 'como líneas'];
-        const explicitPiePhrases = ['en pie', 'pie chart', 'gráfico circular', 'gráfico de pastel', 'como pastel'];
-
-        if (explicitTablePhrases.some(p => msgLower.includes(p))) {
-          response.chartConfig.userExplicitRequest = true;
-          response.chartType = 'table';
-        } else if (explicitBarPhrases.some(p => msgLower.includes(p))) {
-          response.chartConfig.userExplicitRequest = true;
-          response.chartType = 'bar';
-        } else if (explicitLinePhrases.some(p => msgLower.includes(p))) {
-          response.chartConfig.userExplicitRequest = true;
-          response.chartType = 'line';
-        } else if (explicitPiePhrases.some(p => msgLower.includes(p))) {
-          response.chartConfig.userExplicitRequest = true;
-          response.chartType = 'pie';
-        }
-      }
-
       onBotResponse(response);
     } catch (error) {
       // Don't show error if request was cancelled by user
@@ -139,6 +135,7 @@ function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSugge
             key={message.id}
             message={message}
             onClarificationSelect={handleClarificationSelect}
+            onFollowUpClick={handleFollowUpClick}
           />
         ))}
 
@@ -149,7 +146,11 @@ function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSugge
               <span></span>
               <span></span>
             </div>
-            <span className="loading-text">Analizando datos...</span>
+            <span className="loading-text">
+              {elapsedSeconds < 10
+                ? 'Analizando datos...'
+                : `Aún pensando... (${elapsedSeconds}s)`}
+            </span>
             <button className="cancel-button" onClick={handleCancelQuery} title="Cancelar consulta">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                 <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>

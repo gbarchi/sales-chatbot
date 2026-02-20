@@ -1,6 +1,8 @@
 import duckdb from 'duckdb';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { getHolidaysForRange } from './holidayService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -15,7 +17,7 @@ class DataService {
   async initialize() {
     if (this.initialized) return;
 
-    return new Promise((resolve, reject) => {
+    await new Promise((resolve, reject) => {
       // Create in-memory database
       this.db = new duckdb.Database(':memory:');
       this.conn = this.db.connect();
@@ -95,6 +97,82 @@ class DataService {
         });
       });
     });
+
+    // Load optional clients CSV (for map queries)
+    await this._loadClientsTable();
+  }
+
+  async _loadClientsTable() {
+    const clientsCsvPath = process.env.CLIENTS_CSV_PATH ||
+      path.resolve(__dirname, '../../../clients.csv');
+
+    if (!fs.existsSync(clientsCsvPath)) {
+      console.log('[dataService] No clients.csv found — map queries will be unavailable');
+      this.hasClients = false;
+      return;
+    }
+
+    return new Promise((resolve) => {
+      // Detect column format by peeking at the first row
+      this.conn.all(
+        `SELECT * FROM read_csv_auto('${clientsCsvPath.replace(/'/g, "''")}', header=true, ignore_errors=true) LIMIT 1`,
+        (err, rows) => {
+          if (err || !rows || rows.length === 0) {
+            console.warn('[dataService] clients.csv could not be read:', err?.message);
+            this.hasClients = false;
+            return resolve();
+          }
+
+          const cols = Object.keys(rows[0]).map(c => c.toLowerCase());
+          const hasLatLng = cols.includes('lat') && cols.includes('lng');
+          const hasUbicacion = cols.includes('u_ubicacion');
+          const cardcodeCol = cols.includes('cardcode') ? 'cardcode' : 'CardCode';
+          const cardnameCol = cols.includes('cardname') ? 'cardname' : (cols.includes('nombre') ? 'nombre' : null);
+          const ciudadCol   = cols.includes('ciudad') ? 'ciudad' : (cols.includes('city') ? 'city' : null);
+          const provinciaCol = cols.includes('provincia') ? 'provincia' : null;
+          const vendedorCol  = cols.includes('nombrevendedor') ? 'nombrevendedor' : null;
+
+          let latExpr, lngExpr;
+          if (hasLatLng) {
+            latExpr = 'TRY_CAST(Lat AS DOUBLE)';
+            lngExpr = 'TRY_CAST(Lng AS DOUBLE)';
+          } else if (hasUbicacion) {
+            // Format: "-0.214234,-78.407998"
+            latExpr = `TRY_CAST(TRIM(SPLIT_PART(REPLACE(u_ubicacion, '"', ''), ',', 1)) AS DOUBLE)`;
+            lngExpr = `TRY_CAST(TRIM(SPLIT_PART(REPLACE(u_ubicacion, '"', ''), ',', 2)) AS DOUBLE)`;
+          } else {
+            console.warn('[dataService] clients.csv: no lat/lng or u_ubicacion column found');
+            this.hasClients = false;
+            return resolve();
+          }
+
+          const sql = `
+            CREATE TABLE IF NOT EXISTS clients AS
+            SELECT
+              CAST(${cardcodeCol} AS VARCHAR)                    AS CardCode,
+              ${cardnameCol ? `CAST(${cardnameCol} AS VARCHAR)` : "NULL::VARCHAR"} AS Cardname,
+              ${latExpr}                                          AS Lat,
+              ${lngExpr}                                          AS Lng,
+              ${ciudadCol   ? `CAST(${ciudadCol}    AS VARCHAR)` : "NULL::VARCHAR"} AS Ciudad,
+              ${provinciaCol ? `CAST(${provinciaCol} AS VARCHAR)` : "NULL::VARCHAR"} AS Provincia,
+              ${vendedorCol  ? `CAST(${vendedorCol}  AS VARCHAR)` : "NULL::VARCHAR"} AS NombreVendedor
+            FROM read_csv_auto('${clientsCsvPath.replace(/'/g, "''")}', header=true, ignore_errors=true)
+            WHERE ${latExpr} IS NOT NULL AND ${lngExpr} IS NOT NULL
+          `;
+
+          this.conn.run(sql, (err2) => {
+            if (err2) {
+              console.warn('[dataService] clients.csv could not be loaded:', err2.message);
+              this.hasClients = false;
+            } else {
+              console.log('Clients table loaded from CSV!');
+              this.hasClients = true;
+            }
+            resolve();
+          });
+        }
+      );
+    });
   }
 
   async executeQuery(sql) {
@@ -173,6 +251,15 @@ class DataService {
       this.executeQuery('SELECT CAST(COUNT(*) AS INTEGER) as count FROM sales')
     ]);
 
+    // Fetch Ecuador holidays for the data range (cached after first call)
+    const minDateStr = dateRange[0].minDate instanceof Date
+      ? dateRange[0].minDate.toISOString().split('T')[0]
+      : String(dateRange[0].minDate).split('T')[0];
+    const maxDateStr = dateRange[0].maxDate instanceof Date
+      ? dateRange[0].maxDate.toISOString().split('T')[0]
+      : String(dateRange[0].maxDate).split('T')[0];
+    const holidays = await getHolidaysForRange(minDateStr, maxDateStr);
+
     const metadata = {
       vendedores: vendedores.map(r => r.NombreVendedor),
       supervisores: supervisores.map(r => r.NombreSupervisor),
@@ -187,6 +274,8 @@ class DataService {
         max: dateRange[0].maxDate
       },
       rowCount: rowCount[0].count,
+      holidays,
+      hasClients: this.hasClients || false,
       schema: {
         columns: [
           { name: 'Fecha', type: 'DATE', description: 'Fecha de la transacción' },

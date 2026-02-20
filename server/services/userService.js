@@ -49,6 +49,45 @@ class UserService {
     // Create index for efficient history queries
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_history_user ON query_history(user_id, timestamp DESC)');
 
+    // Create query logs table (admin analytics)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS query_logs (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id           INTEGER,
+        username          TEXT,
+        user_query        TEXT NOT NULL,
+        resolved_entities TEXT,
+        result_type       TEXT NOT NULL,
+        llm_sql           TEXT,
+        llm_chart_type    TEXT,
+        llm_chart_config  TEXT,
+        llm_explanation   TEXT,
+        llm_raw_response  TEXT,
+        error_message     TEXT,
+        result_row_count  INTEGER,
+        duration_ms       INTEGER,
+        date_filter       TEXT,
+        timestamp         DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_query_logs_timestamp ON query_logs(timestamp DESC)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_query_logs_result_type ON query_logs(result_type)');
+
+    // Add last_login column if it doesn't exist (migration for existing databases)
+    try {
+      this.db.exec('ALTER TABLE users ADD COLUMN last_login DATETIME');
+    } catch (e) { /* Column already exists */ }
+
+    // Create settings table (key-value store for runtime config)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS settings (
+        key        TEXT PRIMARY KEY,
+        value      TEXT NOT NULL,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     // Insert default admin if no users exist
     const userCount = this.db.prepare('SELECT COUNT(*) as count FROM users').get();
     if (userCount.count === 0) {
@@ -91,26 +130,43 @@ class UserService {
       return null;
     }
 
+    // Record last login timestamp
+    this.db.prepare('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?').run(user.id);
+
     // Return user without password hash
     const { password_hash, ...userWithoutPassword } = user;
     return userWithoutPassword;
   }
 
+  // Settings key-value store
+  getSetting(key) {
+    const row = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+    return row ? row.value : null;
+  }
+
+  setSetting(key, value) {
+    this.db.prepare(`
+      INSERT INTO settings (key, value, updated_at)
+      VALUES (?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `).run(key, value);
+  }
+
   // Get user by ID
   getById(id) {
-    const user = this.db.prepare('SELECT id, username, name, role, slpcode, supervisor_name, active, created_at FROM users WHERE id = ?').get(id);
+    const user = this.db.prepare('SELECT id, username, name, role, slpcode, supervisor_name, active, created_at, last_login FROM users WHERE id = ?').get(id);
     return user;
   }
 
   // Get user by username
   getByUsername(username) {
-    const user = this.db.prepare('SELECT id, username, name, role, slpcode, supervisor_name, active, created_at FROM users WHERE username = ?').get(username);
+    const user = this.db.prepare('SELECT id, username, name, role, slpcode, supervisor_name, active, created_at, last_login FROM users WHERE username = ?').get(username);
     return user;
   }
 
   // Get all users (for admin)
   getAllUsers() {
-    return this.db.prepare('SELECT id, username, name, role, slpcode, supervisor_name, active, created_at FROM users ORDER BY role, name').all();
+    return this.db.prepare('SELECT id, username, name, role, slpcode, supervisor_name, active, created_at, last_login FROM users ORDER BY role, name').all();
   }
 
   // Create user
@@ -280,6 +336,169 @@ class UserService {
     `).run(userId);
 
     return result.changes;
+  }
+
+  // Save a query log entry (fire-and-forget safe — never throws)
+  saveQueryLog(logData) {
+    try {
+      const {
+        user_id = null,
+        username = null,
+        user_query,
+        resolved_entities = null,
+        result_type,
+        llm_sql = null,
+        llm_chart_type = null,
+        llm_chart_config = null,
+        llm_explanation = null,
+        llm_raw_response = null,
+        error_message = null,
+        result_row_count = null,
+        duration_ms = null,
+        date_filter = null
+      } = logData;
+
+      if (!user_query || !result_type) return null;
+
+      // Serialize objects; cap raw_response at 10KB to prevent storage bloat
+      const serialize = (val) => {
+        if (val === null || val === undefined) return null;
+        if (typeof val === 'string') return val.substring(0, 10240);
+        return JSON.stringify(val).substring(0, 10240);
+      };
+
+      const result = this.db.prepare(`
+        INSERT INTO query_logs (
+          user_id, username, user_query, resolved_entities,
+          result_type, llm_sql, llm_chart_type, llm_chart_config,
+          llm_explanation, llm_raw_response, error_message,
+          result_row_count, duration_ms, date_filter
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        user_id, username, user_query, serialize(resolved_entities),
+        result_type, llm_sql, llm_chart_type, serialize(llm_chart_config),
+        llm_explanation, serialize(llm_raw_response), error_message,
+        result_row_count, duration_ms, serialize(date_filter)
+      );
+
+      return result.lastInsertRowid;
+    } catch (err) {
+      console.error('Error saving query log:', err);
+      return null;
+    }
+  }
+
+  // Get query logs for admin review
+  getQueryLogs({ result_type = null, date_from = null, date_to = null, limit = 50, offset = 0 } = {}) {
+    const conditions = [];
+    const params = [];
+
+    if (result_type) {
+      conditions.push('result_type = ?');
+      params.push(result_type);
+    }
+    if (date_from) {
+      conditions.push('timestamp >= ?');
+      params.push(date_from);
+    }
+    if (date_to) {
+      conditions.push('timestamp <= ?');
+      params.push(date_to + ' 23:59:59');
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const logs = this.db.prepare(`
+      SELECT id, user_id, username, user_query, resolved_entities,
+             result_type, llm_sql, llm_chart_type, llm_chart_config,
+             llm_explanation, llm_raw_response, error_message,
+             result_row_count, duration_ms, date_filter, timestamp
+      FROM query_logs
+      ${where}
+      ORDER BY timestamp DESC
+      LIMIT ? OFFSET ?
+    `).all(...params, limit, offset);
+
+    const countRow = this.db.prepare(`
+      SELECT COUNT(*) as total FROM query_logs ${where}
+    `).get(...params);
+
+    return { logs, total: countRow.total, limit, offset };
+  }
+
+  getQueryStats({ date_from = null, date_to = null, username = null } = {}) {
+    // Date-only conditions — used for username_list dropdown (not filtered by user)
+    const dateConditions = [];
+    const dateParams = [];
+    if (date_from) { dateConditions.push('timestamp >= ?'); dateParams.push(date_from); }
+    if (date_to)   { dateConditions.push('timestamp <= ?'); dateParams.push(date_to + ' 23:59:59'); }
+
+    // Main conditions: date + optional username filter
+    const conditions = [...dateConditions];
+    const params = [...dateParams];
+    if (username) { conditions.push('username = ?'); params.push(username); }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    // KPIs
+    const kpis = this.db.prepare(`
+      SELECT
+        COUNT(*) AS total_queries,
+        ROUND(100.0 * SUM(CASE WHEN result_type IN ('success', 'conversational', 'multi', 'clarification') THEN 1 ELSE 0 END) / MAX(COUNT(*), 1), 1) AS success_rate,
+        ROUND(AVG(duration_ms), 0) AS avg_duration_ms,
+        COUNT(DISTINCT CASE WHEN username IS NOT NULL THEN username END) AS active_users
+      FROM query_logs ${where}
+    `).get(...params);
+
+    // Queries per day — default to last 30 days when no date_from given
+    const byDayConditions = [...conditions];
+    if (!date_from) byDayConditions.push("timestamp >= DATE('now', '-30 days')");
+    const byDayWhere = byDayConditions.length > 0 ? `WHERE ${byDayConditions.join(' AND ')}` : '';
+    const by_day = this.db.prepare(`
+      SELECT DATE(timestamp) AS day, COUNT(*) AS total
+      FROM query_logs ${byDayWhere}
+      GROUP BY DATE(timestamp) ORDER BY day ASC
+    `).all(...params);
+
+    // Result type breakdown
+    const by_result_type = this.db.prepare(`
+      SELECT result_type, COUNT(*) AS total
+      FROM query_logs ${where}
+      GROUP BY result_type ORDER BY total DESC
+    `).all(...params);
+
+    // Top chart types (success queries only)
+    const chartConditions = [...conditions, "result_type = 'success'", 'llm_chart_type IS NOT NULL'];
+    const chartWhere = `WHERE ${chartConditions.join(' AND ')}`;
+    const by_chart_type = this.db.prepare(`
+      SELECT llm_chart_type, COUNT(*) AS total
+      FROM query_logs ${chartWhere}
+      GROUP BY llm_chart_type ORDER BY total DESC LIMIT 10
+    `).all(...params);
+
+    // Top users — join to users table to get last_login
+    const userConditions = [...conditions, 'ql.username IS NOT NULL'];
+    const userWhere = `WHERE ${userConditions.join(' AND ')}`;
+    const top_users = this.db.prepare(`
+      SELECT sub.username, sub.total_queries, sub.success_rate, u.last_login
+      FROM (
+        SELECT username,
+          COUNT(*) AS total_queries,
+          ROUND(100.0 * SUM(CASE WHEN result_type IN ('success', 'conversational', 'multi', 'clarification') THEN 1 ELSE 0 END) / COUNT(*), 1) AS success_rate
+        FROM query_logs ql
+        ${userWhere}
+        GROUP BY ql.username ORDER BY total_queries DESC LIMIT 10
+      ) sub
+      LEFT JOIN users u ON u.username = sub.username
+    `).all(...params);
+
+    // Username list for the filter dropdown (date-filtered only, not by username)
+    const listConditions = [...dateConditions, 'username IS NOT NULL'];
+    const listWhere = `WHERE ${listConditions.join(' AND ')}`;
+    const username_list = this.db.prepare(`
+      SELECT DISTINCT username FROM query_logs ${listWhere} ORDER BY username
+    `).all(...dateParams).map(r => r.username);
+
+    return { kpis, by_day, by_result_type, by_chart_type, top_users, username_list };
   }
 }
 

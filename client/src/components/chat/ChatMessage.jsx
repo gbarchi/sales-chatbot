@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import ChartCarousel from '../charts/ChartCarousel';
 import ChartContainer from '../charts/ChartContainer';
 
-function ChatMessage({ message, onClarificationSelect }) {
+function ChatMessage({ message, onClarificationSelect, onFollowUpClick }) {
   const [showSQL, setShowSQL] = useState(false);
   const isBot = message.type === 'bot';
   const hasChart = isBot && message.data && message.data.length > 0;
@@ -14,19 +14,21 @@ function ChatMessage({ message, onClarificationSelect }) {
     window.dispatchEvent(event);
   };
 
-  // Convert markdown-style bold (**text**) to JSX with <strong> tags
-  const renderMarkdownLine = (text) => {
-    const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  // Render inline markdown: **bold** and *italic*
+  const renderInline = (text) => {
+    const parts = text.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*)/g);
     return parts.map((part, idx) => {
-      if (part.startsWith('**') && part.endsWith('**')) {
-        return (
-          <strong key={idx}>
-            {part.slice(2, -2)}
-          </strong>
-        );
-      }
+      if (part.startsWith('**') && part.endsWith('**')) return <strong key={idx}>{part.slice(2, -2)}</strong>;
+      if (part.startsWith('*') && part.endsWith('*'))   return <em key={idx}>{part.slice(1, -1)}</em>;
       return part;
     });
+  };
+
+  // Convert markdown lines: ## heading, **bold**, *italic*
+  const renderMarkdownLine = (text) => {
+    if (text.startsWith('## ')) return <strong style={{ display: 'block', marginTop: 4, letterSpacing: '0.3px' }}>{renderInline(text.slice(3))}</strong>;
+    if (text.startsWith('# '))  return <strong style={{ display: 'block', marginTop: 4 }}>{renderInline(text.slice(2))}</strong>;
+    return renderInline(text);
   };
 
   return (
@@ -109,6 +111,19 @@ function ChatMessage({ message, onClarificationSelect }) {
                   {renderMarkdownLine(line)}
                   {i < message.analysis.split('\n').length - 1 && <br />}
                 </React.Fragment>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {message.followUps && message.followUps.length > 0 && !hasMultiResults && (
+          <div className="followup-section">
+            <div className="followup-label">💬 Podrías preguntar:</div>
+            <div className="followup-chips">
+              {message.followUps.map((q, i) => (
+                <button key={i} className="followup-chip" onClick={() => onFollowUpClick && onFollowUpClick(q)}>
+                  {q}
+                </button>
               ))}
             </div>
           </div>
@@ -238,6 +253,39 @@ function ChatMessage({ message, onClarificationSelect }) {
 
         .analysis-content strong {
           color: #92400e;
+        }
+
+        .followup-section {
+          margin-top: 10px;
+        }
+
+        .followup-label {
+          font-size: 12px;
+          color: var(--text-secondary);
+          margin-bottom: 6px;
+        }
+
+        .followup-chips {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+        }
+
+        .followup-chip {
+          padding: 5px 12px;
+          background: white;
+          border: 1.5px solid var(--primary-color);
+          border-radius: 16px;
+          color: var(--primary-color);
+          font-size: 12px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+
+        .followup-chip:hover {
+          background: var(--primary-color);
+          color: white;
         }
 
         .sql-section {

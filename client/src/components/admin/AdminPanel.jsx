@@ -1,7 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { fetchUsers, createUser, updateUser, updatePassword, deleteUser, fetchVendors, fetchSupervisors } from '../../services/api';
+import { fetchUsers, createUser, updateUser, updatePassword, deleteUser, fetchVendors, fetchSupervisors, fetchSettings, saveSettings } from '../../services/api';
+
+const MODELS = [
+  { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5 — Rápido y económico' },
+  { value: 'claude-sonnet-4-6',          label: 'Sonnet 4.6 — Equilibrado' },
+  { value: 'claude-opus-4-6',            label: 'Opus 4.6 — Máxima capacidad' },
+];
 
 function AdminPanel({ onClose }) {
+  const [activeTab, setActiveTab] = useState('users');
+
+  // Users tab state
   const [users, setUsers] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [supervisors, setSupervisors] = useState([]);
@@ -18,9 +27,52 @@ function AdminPanel({ onClose }) {
     supervisor_name: ''
   });
 
+  // Config tab state
+  const [settingsModel, setSettingsModel] = useState('claude-haiku-4-5-20251001');
+  const [settingsApiKey, setSettingsApiKey] = useState('');
+  const [settingsMaskedKey, setSettingsMaskedKey] = useState('');
+  const [settingsHasKey, setSettingsHasKey] = useState(false);
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsMessage, setSettingsMessage] = useState(null); // { type: 'success'|'error', text }
+  const [showApiKey, setShowApiKey] = useState(false);
+
   useEffect(() => {
     loadData();
   }, []);
+
+  const loadSettings = async () => {
+    setSettingsLoading(true);
+    try {
+      const data = await fetchSettings();
+      setSettingsModel(data.model || 'claude-haiku-4-5-20251001');
+      setSettingsMaskedKey(data.maskedKey || '');
+      setSettingsHasKey(data.hasKey || false);
+    } catch (err) {
+      setSettingsMessage({ type: 'error', text: err.message });
+    } finally {
+      setSettingsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'config') loadSettings();
+  }, [activeTab]);
+
+  const handleSaveSettings = async () => {
+    setSettingsSaving(true);
+    setSettingsMessage(null);
+    try {
+      const result = await saveSettings({ apiKey: settingsApiKey, model: settingsModel });
+      setSettingsMessage({ type: 'success', text: result.message });
+      setSettingsApiKey('');
+      await loadSettings();
+    } catch (err) {
+      setSettingsMessage({ type: 'error', text: err.message });
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -140,13 +192,30 @@ function AdminPanel({ onClose }) {
   return (
     <div className="admin-panel">
       <div className="admin-header">
-        <h2>Gestión de Usuarios</h2>
+        <h2>{activeTab === 'config' ? 'Configuración del Sistema' : 'Gestión de Usuarios'}</h2>
         <div className="admin-actions">
-          <button className="btn-primary" onClick={() => { resetForm(); setEditingUser(null); setShowForm(true); }}>
-            + Nuevo Usuario
-          </button>
+          {activeTab === 'users' && (
+            <button className="btn-primary" onClick={() => { resetForm(); setEditingUser(null); setShowForm(true); }}>
+              + Nuevo Usuario
+            </button>
+          )}
           <button className="btn-close" onClick={onClose}>×</button>
         </div>
+      </div>
+
+      <div className="admin-tabs">
+        <button
+          className={`admin-tab ${activeTab === 'users' ? 'active' : ''}`}
+          onClick={() => setActiveTab('users')}
+        >
+          Usuarios
+        </button>
+        <button
+          className={`admin-tab ${activeTab === 'config' ? 'active' : ''}`}
+          onClick={() => setActiveTab('config')}
+        >
+          Configuracion
+        </button>
       </div>
 
       {error && (
@@ -262,7 +331,68 @@ function AdminPanel({ onClose }) {
         </div>
       )}
 
-      <div className="users-table-container">
+      {activeTab === 'config' && (
+        <div className="config-tab">
+          {settingsLoading ? (
+            <div className="config-loading">Cargando configuración...</div>
+          ) : (
+            <>
+              {settingsMessage && (
+                <div className={`config-message ${settingsMessage.type}`}>
+                  {settingsMessage.text}
+                  <button onClick={() => setSettingsMessage(null)}>×</button>
+                </div>
+              )}
+
+              <div className="config-section">
+                <h3>Modelo de IA</h3>
+                <p className="config-desc">Selecciona el modelo de Claude que se usará para todas las consultas.</p>
+                <select
+                  className="config-select"
+                  value={settingsModel}
+                  onChange={(e) => setSettingsModel(e.target.value)}
+                >
+                  {MODELS.map(m => (
+                    <option key={m.value} value={m.value}>{m.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="config-section">
+                <h3>API Key de Anthropic</h3>
+                <p className="config-desc">
+                  {settingsHasKey
+                    ? <>Clave actual: <code>{settingsMaskedKey}</code>. Deja el campo vacío para mantenerla.</>
+                    : 'No hay clave guardada en la base de datos. Se está usando la del archivo .env.'}
+                </p>
+                <div className="config-key-row">
+                  <input
+                    type={showApiKey ? 'text' : 'password'}
+                    className="config-input"
+                    placeholder="Introduce nueva API key (sk-ant-...)"
+                    value={settingsApiKey}
+                    onChange={(e) => setSettingsApiKey(e.target.value)}
+                  />
+                  <button className="btn-toggle-key" onClick={() => setShowApiKey(v => !v)}>
+                    {showApiKey ? 'Ocultar' : 'Mostrar'}
+                  </button>
+                </div>
+                <small>La API key se almacena en la base de datos local del servidor, no en el código.</small>
+              </div>
+
+              <button
+                className="btn-save-config"
+                onClick={handleSaveSettings}
+                disabled={settingsSaving}
+              >
+                {settingsSaving ? 'Guardando...' : 'Guardar Configuración'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'users' && <div className="users-table-container">
         <table className="users-table">
           <thead>
             <tr>
@@ -271,6 +401,7 @@ function AdminPanel({ onClose }) {
               <th>Rol</th>
               <th>Código/Equipo</th>
               <th>Estado</th>
+              <th>Último acceso</th>
               <th>Acciones</th>
             </tr>
           </thead>
@@ -300,6 +431,11 @@ function AdminPanel({ onClose }) {
                     {user.active ? 'Activo' : 'Inactivo'}
                   </span>
                 </td>
+                <td style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap' }}>
+                  {user.last_login
+                    ? new Date(user.last_login.replace(' ', 'T') + 'Z').toLocaleString('es-GT', { dateStyle: 'short', timeStyle: 'short' })
+                    : '—'}
+                </td>
                 <td>
                   <button className="btn-small" onClick={() => handleEdit(user)}>Editar</button>
                   <button className="btn-small btn-danger" onClick={() => handleDelete(user.id)}>Eliminar</button>
@@ -308,7 +444,7 @@ function AdminPanel({ onClose }) {
             ))}
           </tbody>
         </table>
-      </div>
+      </div>}
 
       <style>{`
         .admin-panel {
@@ -565,6 +701,175 @@ function AdminPanel({ onClose }) {
           background: var(--primary-color);
           color: white;
           border: none;
+        }
+
+        .admin-tabs {
+          display: flex;
+          gap: 0;
+          border-bottom: 2px solid var(--border-color);
+          background: #f8f9fa;
+          padding: 0 24px;
+        }
+
+        .admin-tab {
+          padding: 12px 20px;
+          border: none;
+          background: none;
+          font-size: 14px;
+          font-weight: 500;
+          color: var(--text-secondary);
+          cursor: pointer;
+          border-bottom: 2px solid transparent;
+          margin-bottom: -2px;
+          transition: all 0.15s;
+        }
+
+        .admin-tab.active {
+          color: var(--primary-color);
+          border-bottom-color: var(--primary-color);
+        }
+
+        .admin-tab:hover:not(.active) {
+          color: var(--text-primary);
+          background: rgba(0,0,0,0.04);
+        }
+
+        .config-tab {
+          flex: 1;
+          overflow-y: auto;
+          padding: 32px;
+          max-width: 600px;
+        }
+
+        .config-loading {
+          color: var(--text-secondary);
+          padding: 24px 0;
+        }
+
+        .config-section {
+          margin-bottom: 32px;
+        }
+
+        .config-section h3 {
+          font-size: 16px;
+          font-weight: 600;
+          margin: 0 0 6px;
+          color: var(--text-primary);
+        }
+
+        .config-desc {
+          font-size: 13px;
+          color: var(--text-secondary);
+          margin: 0 0 12px;
+          line-height: 1.5;
+        }
+
+        .config-desc code {
+          background: #f3f4f6;
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-family: monospace;
+          font-size: 12px;
+        }
+
+        .config-select {
+          width: 100%;
+          max-width: 400px;
+          padding: 10px 12px;
+          border: 1px solid var(--border-color);
+          border-radius: 6px;
+          font-size: 14px;
+          background: white;
+        }
+
+        .config-key-row {
+          display: flex;
+          gap: 8px;
+          max-width: 400px;
+          margin-bottom: 6px;
+        }
+
+        .config-input {
+          flex: 1;
+          padding: 10px 12px;
+          border: 1px solid var(--border-color);
+          border-radius: 6px;
+          font-size: 14px;
+          font-family: monospace;
+        }
+
+        .btn-toggle-key {
+          padding: 10px 14px;
+          border: 1px solid var(--border-color);
+          background: white;
+          border-radius: 6px;
+          font-size: 13px;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+
+        .btn-toggle-key:hover {
+          border-color: var(--primary-color);
+          color: var(--primary-color);
+        }
+
+        .config-section small {
+          font-size: 12px;
+          color: var(--text-secondary);
+          display: block;
+        }
+
+        .btn-save-config {
+          padding: 12px 28px;
+          background: var(--primary-color);
+          color: white;
+          border: none;
+          border-radius: 8px;
+          font-size: 15px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: opacity 0.2s;
+        }
+
+        .btn-save-config:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
+        .btn-save-config:not(:disabled):hover {
+          opacity: 0.9;
+        }
+
+        .config-message {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 12px 16px;
+          border-radius: 8px;
+          margin-bottom: 24px;
+          font-size: 14px;
+        }
+
+        .config-message.success {
+          background: #d1fae5;
+          color: #065f46;
+          border: 1px solid #6ee7b7;
+        }
+
+        .config-message.error {
+          background: #fee2e2;
+          color: #dc2626;
+          border: 1px solid #fca5a5;
+        }
+
+        .config-message button {
+          background: none;
+          border: none;
+          font-size: 18px;
+          cursor: pointer;
+          color: inherit;
+          opacity: 0.7;
+          padding: 0 4px;
         }
       `}</style>
     </div>

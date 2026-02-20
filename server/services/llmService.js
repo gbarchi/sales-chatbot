@@ -1,17 +1,28 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { userService } from './userService.js';
 
 class LLMService {
   constructor() {
     this.client = null;
+    this.model = 'claude-haiku-4-5-20251001';
   }
 
   initialize() {
-    if (!process.env.ANTHROPIC_API_KEY) {
+    const dbApiKey = userService.getSetting('anthropic_api_key');
+    const dbModel  = userService.getSetting('anthropic_model');
+
+    const apiKey = dbApiKey || process.env.ANTHROPIC_API_KEY;
+    this.model   = dbModel  || this.model;
+
+    if (!apiKey) {
       throw new Error('ANTHROPIC_API_KEY environment variable is required');
     }
-    this.client = new Anthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY
-    });
+    this.client = new Anthropic({ apiKey });
+  }
+
+  reinitialize(apiKey, model) {
+    this.client = new Anthropic({ apiKey });
+    this.model  = model;
   }
 
   getSystemPrompt(metadata, dateFilter = null, userFilter = null, resolvedEntities = []) {
@@ -67,6 +78,47 @@ DATOS DISPONIBLES:
 - Total de registros: ${metadata.rowCount.toLocaleString()}
 - MONEDA: Todos los valores monetarios están en DÓLARES ($). Usa $ en reportes y análisis, NUNCA €
 
+${metadata.holidays && metadata.holidays.length > 0 ? `FERIADOS NACIONALES ECUADOR (fechas oficiales incluyendo puentes movidos):
+${metadata.holidays.map(h => `${h.date}: ${h.name}`).join('\n')}
+INSTRUCCIÓN: Cuando analices períodos con ventas bajas o caídas inusuales (días, semanas, meses), SIEMPRE verifica si coinciden con feriados de la lista anterior y menciónalo en tu análisis. Ejemplo: "Las bajas ventas del 16-17 feb 2026 se explican por el feriado de Carnaval."` : ''}
+
+${metadata.hasClients ? `
+TABLA ADICIONAL 'clients' (geolocalización de clientes — SOLO tiene coordenadas y ciudad):
+- CardCode (STRING): clave de JOIN con sales.CardCode
+- Cardname (STRING): nombre del cliente (puede ser NULL — usa sales.Cardname si es NULL)
+- Lat (DOUBLE): latitud geográfica
+- Lng (DOUBLE): longitud geográfica
+- Ciudad (STRING): ciudad del cliente
+- Provincia (STRING): provincia (puede ser NULL)
+- NombreVendedor (STRING): vendedor asignado (puede ser NULL — usa sales.NombreVendedor si es NULL)
+
+CHART TYPE 'map':
+- Usa 'map' ÚNICAMENTE cuando el usuario mencione explícitamente "mapa", "en el mapa", "geográfico", "ubicación", "ruta de visitas" o similares.
+- NUNCA uses 'map' para consultas de churn, ventas por cliente, inactivos, etc. — esas usan table/bar.
+- SQL SIEMPRE debe incluir: c.Lat, c.Lng + una columna de nombre del cliente + métrica opcional.
+- NUNCA uses agregados (MAX, SUM, COUNT) en el WHERE. Usa un CTE para pre-calcular métricas, luego filtra en el outer WHERE.
+- IMPORTANTE: Para filtrar clientes por vendedor, usa SIEMPRE el "último vendedor que atendió al cliente" (arg_max). Esto evita mostrar clientes de zonas anteriores que ya no pertenecen al vendedor actual.
+- arg_max(columna, criterio) es la función DuckDB para obtener el valor de 'columna' correspondiente al máximo de 'criterio'.
+- Ejemplo SQL de mapa con filtro de días sin comprar:
+  WITH last_vendor AS (
+    SELECT CardCode,
+           arg_max(NombreVendedor, Fecha) AS UltimoVendedor,
+           MAX(Fecha) AS UltimaCompra,
+           SUM(LineTotal) AS TotalVenta
+    FROM sales
+    GROUP BY CardCode
+  )
+  SELECT c.Cardname, c.Lat, c.Lng, c.Ciudad,
+         lv.TotalVenta,
+         DATEDIFF('day', lv.UltimaCompra, CURRENT_DATE) AS DiasSinComprar
+  FROM clients c
+  JOIN last_vendor lv ON c.CardCode = lv.CardCode
+  WHERE lv.UltimoVendedor = 'Ronny Marcillo'
+    AND DATEDIFF('day', lv.UltimaCompra, CURRENT_DATE) > 30
+  ORDER BY DiasSinComprar DESC
+  LIMIT 200
+- chartConfig para map: { "latKey": "Lat", "lngKey": "Lng", "labelKey": "Cardname", "valueKey": "TotalVenta" }
+` : ''}
 ${resolvedEntities.length > 0 ? `VALORES EXACTOS DETECTADOS EN ESTA CONSULTA (ya resueltos):
 ${resolvedEntities.map(e => `- ${e.column} = '${e.exactValue}'`).join('\n')}
 Para estos valores ya resueltos, usa = en lugar de ILIKE en la cláusula WHERE (es más preciso).
@@ -104,11 +156,15 @@ ${(userFilter?.canViewMargin !== false) ? `3. Para margen de ganancia SIEMPRE us
     - Ejemplo: WHERE ItmsgrpName ILIKE '%iluminacion%'
     - ILIKE es case-insensitive y funciona con búsquedas parciales
 
-13. IMPORTANTE: Toda columna en SELECT que no sea función de agregación DEBE estar en GROUP BY
+13. Para ticket promedio (valor promedio por factura) SIEMPRE usa:
+    ROUND(SUM(LineTotal) / NULLIF(COUNT(DISTINCT DocNum), 0), 2) AS Ticket_Promedio
+    - NUNCA uses AVG(LineTotal) para ticket promedio — eso da el promedio por línea de producto, no por factura
+    - NUNCA uses SUM(LineTotal) / COUNT(*) — COUNT(*) cuenta líneas, no facturas
+14. IMPORTANTE: Toda columna en SELECT que no sea función de agregación DEBE estar en GROUP BY
     - Correcto: SELECT DATE_TRUNC('month', Fecha) as Mes, SUM(LineTotal) FROM sales GROUP BY DATE_TRUNC('month', Fecha)
     - Incorrecto: SELECT DATE_TRUNC('month', Fecha) as Mes, SUM(LineTotal) FROM sales GROUP BY Mes
-14. En GROUP BY usa la expresión completa, NO el alias (DATE_TRUNC('month', Fecha), no Mes)
-15. CANALES DE VENTA Y PROMOCIONES:
+15. En GROUP BY usa la expresión completa, NO el alias (DATE_TRUNC('month', Fecha), no Mes)
+16. CANALES DE VENTA Y PROMOCIONES:
     - Web (VARCHAR): NULL=tradicional, 'SanaStore'=venta web
       * Para ventas web: WHERE Web IS NOT NULL  o  WHERE Web = 'SanaStore'
     - Feria (INTEGER): 1=tradicional, 2=feria
@@ -124,7 +180,16 @@ ${(userFilter?.canViewMargin !== false) ? `3. Para margen de ganancia SIEMPRE us
         ELSE 'Canal Tradicional'
       END as Canal
 
-16. FILTROS IMPLÍCITOS EN LENGUAJE NATURAL:
+16. DISCIPLINA DE COLUMNAS - MUY IMPORTANTE:
+    Incluye ÚNICAMENTE las columnas que el usuario pidió explícitamente o que son estrictamente
+    necesarias para el gráfico. NO agregues métricas extra por iniciativa propia.
+    - "top 10 vendedores" → solo NombreVendedor + SUM(LineTotal) as Total_Ventas
+    - "top 10 vendedores por facturas" → solo NombreVendedor + COUNT(DISTINCT DocNum) as Facturas
+    - "ventas y margen por vendedor" → NombreVendedor + Total_Ventas + Margen
+    MAL: agregar facturas, unidades, margen cuando no se pidieron.
+    BIEN: solo las columnas que el usuario necesita ver.
+
+17. FILTROS IMPLÍCITOS EN LENGUAJE NATURAL:
     Cuando el usuario mencione productos, categorías, clientes o lugares implícitamente
     como sujeto/contexto (no como resultado a devolver), tradúcelo a cláusulas WHERE:
     - "clientes que compraron tejas" → WHERE NombreProducto ILIKE '%teja%'
@@ -183,6 +248,8 @@ DESPUÉS de verificar solicitud explícita, usa esta prioridad automática:
 4. Si usuario pide "ventas Y margen" sin mencionar scatter → "combo"
 5. Si hay >15 categorías únicas o pide "lista/todos/detalles" → "table"
 6. Para tendencias en el tiempo (por mes, evolución) → "line"
+6b. Para tendencias temporales DESGLOSADAS por una dimensión (familia, vendedor, provincia, categoría) → "multi-line"
+    Ejemplos: "por mes separado por familia", "evolución mensual por supervisor", "ventas por semana por provincia"
 7. Para comparar categorías (una métrica) → "bar"
 8. Para distribución/proporción (% del total) → "pie"
 
@@ -193,13 +260,15 @@ TIPOS DE GRÁFICO:
 - "pie": Distribución/proporción (% de ventas por categoría)
 - "area": Volúmenes acumulados con énfasis en magnitud
 - "scatter": OBLIGATORIO cuando usuario pide "scatter", "dispersión", "correlación". xKey y yKey AMBOS numéricos. Incluir labelKey.
-- "combo": DOS métricas juntas (barras + línea). Solo si NO pide scatter explícitamente.
+- "combo": DOS métricas juntas (barras + línea). SOLO cuando el usuario pide EXPLÍCITAMENTE dos métricas (ej: "ventas y margen", "unidades y ventas"). NUNCA usar combo para un ranking simple.
+- "multi-line": Una línea por cada valor de una dimensión (familia, supervisor, provincia). Para desglosar una tendencia temporal por categoría. SQL en formato largo (3 columnas).
 - "heatmap": Análisis cruzado de dos dimensiones (por vendedor y categoría). Matriz de colores.
 - "table": Datos detallados, listados, o >15 categorías.
 
 ${(userFilter?.canViewMargin !== false) ? `REGLA CRÍTICA PARA SCATTER vs COMBO:
 - Si el usuario pide "scatter", "scatter plot", "dispersión", "correlación" → usar chartType "scatter"
 - Si el usuario pide "ventas y margen" SIN mencionar scatter → usar chartType "combo"
+- Para "top 10 vendedores", "ranking de productos", etc. → usar chartType "bar" (NO combo)
 
 Cuando uses COMBO:
 1. chartType = "combo"
@@ -365,15 +434,38 @@ IMPORTANTE para combo:
 - lineKey = columna para la LÍNEA (eje derecho, normalmente margen/porcentaje)
 - AMBAS columnas deben existir en el SELECT del SQL` : ``}
 
+CONFIGURACIÓN ESPECIAL PARA MULTI-LINE CHART:
+Muestra UNA LÍNEA POR CATEGORÍA en el tiempo. Usar cuando el usuario pide desglosar
+una evolución temporal por una dimensión (familia, provincia, supervisor, categoría, etc.)
+
+SQL usa formato LARGO (3 columnas: tiempo × dimensión × valor):
+- NO uses CASE WHEN ni pivotes — el frontend hace el pivote automáticamente
+- LIMIT 100 es suficiente (ej: 10 familias × 12 meses = 120 filas)
+- xKey = columna de tiempo, seriesKey = columna de dimensión, valueKey = columna numérica
+
+Ejemplo — "ventas por mes separado por familia":
+{
+  "sql": "SELECT DATE_TRUNC('month', Fecha) as Mes, ItmsgrpName as Familia, SUM(LineTotal) as Ventas FROM sales GROUP BY DATE_TRUNC('month', Fecha), ItmsgrpName ORDER BY Mes, Familia LIMIT 100",
+  "chartType": "multi-line",
+  "chartConfig": {
+    "xKey": "Mes",
+    "seriesKey": "Familia",
+    "valueKey": "Ventas",
+    "title": "Ventas por Mes por Familia"
+  }
+}
+
+IMPORTANTE: NO uses yKey ni yKeys para multi-line. Usa SIEMPRE xKey + seriesKey + valueKey.
+
 CONFIGURACIÓN ESPECIAL PARA SCATTER CHART (MUY IMPORTANTE):
 El scatter plot muestra la RELACIÓN/CORRELACIÓN entre dos variables numéricas. REQUIERE:
 1. El SQL DEBE incluir: una columna de identificación (ej: NombreVendedor) + DOS columnas numéricas
 2. chartConfig DEBE especificar xKey (numérico), yKey (numérico), y labelKey (texto para identificar puntos)
 3. USAR cuando el usuario pide explícitamente "scatter", "scatter plot", "dispersión", o "correlación"
 
-${(userFilter?.canViewMargin !== false) ? `Ejemplo scatter:
+${(userFilter?.canViewMargin !== false) ? `Ejemplo scatter (con filtro de fecha activo):
 {
-  "sql": "SELECT NombreVendedor, SUM(LineTotal) as Ventas, ROUND((SUM(LineTotal) - SUM(LineCost)) / NULLIF(SUM(LineTotal), 0) * 100, 2) as Margen FROM sales GROUP BY NombreVendedor HAVING SUM(LineTotal) > 0",
+  "sql": "SELECT NombreVendedor, SUM(LineTotal) as Ventas, ROUND((SUM(LineTotal) - SUM(LineCost)) / NULLIF(SUM(LineTotal), 0) * 100, 2) as Margen FROM sales WHERE LineTotal > 0 AND Fecha >= '2025-01-01' AND Fecha <= '2025-12-31' GROUP BY NombreVendedor HAVING SUM(LineTotal) > 0",
   "chartType": "scatter",
   "chartConfig": {
     "xKey": "Ventas",
@@ -384,7 +476,7 @@ ${(userFilter?.canViewMargin !== false) ? `Ejemplo scatter:
   "explanation": "Gráfico de dispersión que muestra la correlación entre ventas totales y margen de ganancia para cada vendedor."
 }` : `Ejemplo scatter (con dos columnas numéricas):
 {
-  "sql": "SELECT NombreVendedor, SUM(LineTotal) as Ventas, SUM(Quantity) as Unidades FROM sales GROUP BY NombreVendedor HAVING SUM(LineTotal) > 0",
+  "sql": "SELECT NombreVendedor, SUM(LineTotal) as Ventas, SUM(Quantity) as Unidades FROM sales WHERE Fecha >= '2025-01-01' AND Fecha <= '2025-12-31' GROUP BY NombreVendedor HAVING SUM(LineTotal) > 0",
   "chartType": "scatter",
   "chartConfig": {
     "xKey": "Ventas",
@@ -399,6 +491,7 @@ IMPORTANTE para scatter:
 - yKey = columna numérica para el eje Y (ej: Unidades o Margen)
 - labelKey = columna de texto para identificar cada punto en el tooltip (ej: NombreVendedor)
 - NO confundir con combo: scatter muestra PUNTOS, combo muestra BARRAS + LÍNEA
+- SIEMPRE aplica el filtro de fecha activo en el WHERE, igual que cualquier otra consulta
 
 CONFIGURACIÓN ESPECIAL PARA HEATMAP (MUY IMPORTANTE):
 Cuando el usuario pida "heatmap", "mapa de calor", o análisis "por X y Categoría":
@@ -460,6 +553,43 @@ Si la pregunta no puede responderse con los datos disponibles o no es clara:
   "suggestion": "Sugerencia de cómo reformular la pregunta"
 }
 
+CONSULTAS DE PLANIFICACIÓN DE VISITAS:
+Cuando el usuario mencione: "visitar", "plan de visitas", "qué clientes visitar", "agenda de visitas", "visitas del mes", "visitas de la semana", "qué clientes debo", "planificar visitas" — genera UNA SOLA consulta (sin "multiple"), chartType: "plan":
+{
+  "sql": "SELECT Cardname AS cliente, CiudadPrincipal AS ciudad, MAX(Fecha)::VARCHAR AS ultima_compra, CAST(DATEDIFF('day', MAX(Fecha)::DATE, CURRENT_DATE) AS INTEGER) AS dias_sin_compra, ROUND(SUM(LineTotal) / NULLIF(COUNT(DISTINCT DATE_TRUNC('month', Fecha)), 0), 0) AS promedio_mensual, COUNT(DISTINCT DATE_TRUNC('month', Fecha)) AS meses_activo FROM sales WHERE Fecha >= CURRENT_DATE - INTERVAL '18' MONTH [+ filtro de rol] GROUP BY Cardname, CiudadPrincipal HAVING CAST(DATEDIFF('day', MAX(Fecha)::DATE, CURRENT_DATE) AS INTEGER) BETWEEN 7 AND 365 ORDER BY promedio_mensual DESC, dias_sin_compra DESC LIMIT 25",
+  "chartType": "plan",
+  "chartConfig": {
+    "title": "Agenda de visitas",
+    "clientKey": "cliente",
+    "cityKey": "ciudad",
+    "daysKey": "dias_sin_compra",
+    "avgKey": "promedio_mensual"
+  }
+}
+
+- Aplica SIEMPRE el filtro de rol obligatorio (Slpcode o NombreSupervisor)
+- NO apliques el filtro de fecha activo del panel en estas queries
+
+CONSULTAS DE ALERTA DE CHURN (CLIENTES EN RIESGO DE ABANDONO):
+Cuando el usuario mencione: "churn", "abandono", "riesgo de perder", "clientes en riesgo", "qué clientes no compran", "clientes silenciosos", "clientes que se están yendo", "perdiendo clientes" — genera UNA SOLA consulta, chartType: "churn":
+{
+  "sql": "WITH ch AS (SELECT Cardname AS cliente, CiudadPrincipal AS ciudad, MAX(Fecha) AS ultima_compra_ts, COUNT(DISTINCT DATE_TRUNC('month', Fecha)) AS meses_activo, DATEDIFF('day', MIN(Fecha), MAX(Fecha)) AS dias_historial, ROUND(SUM(LineTotal) / NULLIF(COUNT(DISTINCT DATE_TRUNC('month', Fecha)), 0), 0) AS promedio_mensual FROM sales WHERE Fecha >= CURRENT_DATE - INTERVAL '24' MONTH [+ filtro de rol] GROUP BY Cardname, CiudadPrincipal HAVING COUNT(DISTINCT DATE_TRUNC('month', Fecha)) >= 3 AND DATEDIFF('day', MIN(Fecha), MAX(Fecha)) > 30), ch2 AS (SELECT *, CAST(DATEDIFF('day', ultima_compra_ts::DATE, CURRENT_DATE) AS INTEGER) AS dias_sin_compra, ROUND(dias_historial::FLOAT / NULLIF(meses_activo - 1, 0), 0) AS frecuencia_dias FROM ch) SELECT cliente, ciudad, dias_sin_compra, frecuencia_dias, promedio_mensual, ROUND(dias_sin_compra::FLOAT / NULLIF(frecuencia_dias, 0), 1) AS factor_riesgo FROM ch2 WHERE dias_sin_compra > frecuencia_dias * 1.5 AND dias_sin_compra <= 365 ORDER BY promedio_mensual DESC LIMIT 30",
+  "chartType": "churn",
+  "chartConfig": {
+    "title": "Clientes en riesgo de abandono",
+    "clientKey": "cliente",
+    "cityKey": "ciudad",
+    "daysKey": "dias_sin_compra",
+    "freqKey": "frecuencia_dias",
+    "riskKey": "factor_riesgo",
+    "avgKey": "promedio_mensual"
+  }
+}
+
+- Aplica SIEMPRE el filtro de rol obligatorio (Slpcode o NombreSupervisor)
+- NO apliques el filtro de fecha activo del panel en estas queries
+- Solo incluye clientes con al menos 3 meses de compras históricas (HAVING meses_activo >= 3)
+
 CONSULTAS MÚLTIPLES:
 Si el usuario hace MÚLTIPLES preguntas o solicita MÚLTIPLES datos en un solo mensaje, responde con este formato especial:
 {
@@ -510,23 +640,86 @@ CONTEXTO DE CONVERSACIÓN:
       const dataPreview = data.slice(0, 50); // First 50 rows
       const totalRows = data.length;
 
-      // Calculate basic statistics for anomaly detection
-      const yKey = chartConfig?.yKey;
-      let stats = null;
-      if (yKey && dataPreview.length > 0) {
-        const values = dataPreview.map(d => parseFloat(d[yKey])).filter(v => !isNaN(v));
-        if (values.length > 0) {
-          const sum = values.reduce((a, b) => a + b, 0);
-          const mean = sum / values.length;
-          const sortedValues = [...values].sort((a, b) => a - b);
-          const median = sortedValues[Math.floor(sortedValues.length / 2)];
-          const variance = values.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / values.length;
-          const stdDev = Math.sqrt(variance);
-          const min = Math.min(...values);
-          const max = Math.max(...values);
+      // Collect all relevant metric keys based on chart type
+      const metricKeys = [];
+      if (chartConfig?.barKey) metricKeys.push(chartConfig.barKey);
+      if (chartConfig?.lineKey) metricKeys.push(chartConfig.lineKey);
+      if (chartConfig?.yKeys) metricKeys.push(...chartConfig.yKeys);
+      if (chartConfig?.valueKey) metricKeys.push(chartConfig.valueKey);
+      if (chartConfig?.yKey && !metricKeys.includes(chartConfig.yKey)) metricKeys.push(chartConfig.yKey);
+      // Fallback: auto-detect numeric columns from first row
+      if (metricKeys.length === 0 && dataPreview.length > 0) {
+        Object.keys(dataPreview[0]).forEach(k => {
+          if (typeof dataPreview[0][k] === 'number') metricKeys.push(k);
+        });
+      }
 
-          stats = { mean, median, stdDev, min, max, count: values.length };
-        }
+      // Calculate stats for each metric key
+      const calcStats = (key) => {
+        const values = dataPreview.map(d => parseFloat(d[key])).filter(v => !isNaN(v));
+        if (values.length === 0) return null;
+        const sum = values.reduce((a, b) => a + b, 0);
+        const mean = sum / values.length;
+        const sorted = [...values].sort((a, b) => a - b);
+        const median = sorted[Math.floor(sorted.length / 2)];
+        const stdDev = Math.sqrt(values.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / values.length);
+        return { mean, median, stdDev, min: Math.min(...values), max: Math.max(...values) };
+      };
+
+      const statsMap = {};
+      for (const key of metricKeys) {
+        const s = calcStats(key);
+        if (s) statsMap[key] = s;
+      }
+
+      // Special analysis for churn alerts
+      if (chartConfig?.riskKey != null) {
+        const totalRisk = data.reduce((s, r) => s + (r.promedio_mensual || 0), 0);
+        const highRisk = data.filter(r => (r.factor_riesgo || 0) >= 2.0);
+        const fmtUSD = (n) => `$${Math.round(n).toLocaleString()}`;
+
+        const churnPrompt = `Eres un gerente de ventas. Analiza estos clientes en riesgo de abandono.
+
+Total revenue en riesgo: ${fmtUSD(totalRisk)}/mes
+Clientes alto riesgo (2x+ su frecuencia): ${highRisk.length}
+Datos (ordenados por promedio mensual desc):
+${JSON.stringify(dataPreview.slice(0, 15))}
+
+Genera un análisis de riesgo en español con:
+1. Resumen: cuánto revenue está en riesgo y cuántos clientes.
+2. Top 3 clientes más críticos: nombre, revenue mensual, días sin comprar, y una acción concreta (llamar, visitar, enviar oferta).
+3. Una observación sobre el patrón general (¿hay un problema de mercado o son casos aislados?).
+
+Tono: directo y orientado a la acción. Máximo 180 palabras. Usa $ (dólares), nunca €.`;
+
+        const churnResponse = await this.client.messages.create({
+          model: this.model,
+          max_tokens: 500,
+          messages: [{ role: 'user', content: churnPrompt }]
+        });
+        return churnResponse.content[0].text.trim();
+      }
+
+      // Special analysis for visit plan results
+      if (chartConfig?.daysKey != null || chartConfig?.clientKey === 'cliente') {
+        const planPrompt = `Eres un coach de ventas. El vendedor quiere optimizar su agenda de visitas.
+
+Clientes disponibles (ordenados por promedio mensual y días sin compra):
+${JSON.stringify(dataPreview.slice(0, 15))}
+
+Genera una agenda de visitas balanceada en español con:
+1. Clasificación: identifica 2-3 clientes A (alto valor), 2-3 clientes B (valor medio), y 1-2 clientes de recuperación (llevan más de 60 días sin comprar).
+2. Para cada cliente mencionado: nombre, ciudad, días sin compra, promedio mensual, y razón breve.
+3. Sugerencia de agrupación por ciudad para optimizar el recorrido.
+
+Tono: práctico y motivador. Máximo 200 palabras. Usa siempre $ (dólares), nunca €.`;
+
+        const planResponse = await this.client.messages.create({
+          model: this.model,
+          max_tokens: 600,
+          messages: [{ role: 'user', content: planPrompt }]
+        });
+        return planResponse.content[0].text.trim();
       }
 
       const analysisPrompt = `Eres un analista de ventas experto con enfoque en detección de anomalías. Analiza los siguientes resultados y proporciona insights valiosos.
@@ -536,18 +729,20 @@ PREGUNTA ORIGINAL DEL USUARIO: "${userQuery}"
 DATOS OBTENIDOS (${totalRows} filas${totalRows > 50 ? ', mostrando las primeras 50' : ''}):
 ${JSON.stringify(dataPreview, null, 2)}
 
-${stats ? `ESTADÍSTICAS CALCULADAS:
-- Promedio: ${stats.mean.toLocaleString('es-ES', { maximumFractionDigits: 2 })}
-- Mediana: ${stats.median.toLocaleString('es-ES', { maximumFractionDigits: 2 })}
-- Desviación estándar: ${stats.stdDev.toLocaleString('es-ES', { maximumFractionDigits: 2 })}
-- Mínimo: ${stats.min.toLocaleString('es-ES', { maximumFractionDigits: 2 })}
-- Máximo: ${stats.max.toLocaleString('es-ES', { maximumFractionDigits: 2 })}
+${Object.keys(statsMap).length > 0 ? `ESTADÍSTICAS CALCULADAS:
+${Object.entries(statsMap).map(([key, s]) => `
+[${key}]
+- Promedio: ${s.mean.toLocaleString('es-ES', { maximumFractionDigits: 2 })}
+- Mediana: ${s.median.toLocaleString('es-ES', { maximumFractionDigits: 2 })}
+- Desviación estándar: ${s.stdDev.toLocaleString('es-ES', { maximumFractionDigits: 2 })}
+- Mínimo: ${s.min.toLocaleString('es-ES', { maximumFractionDigits: 2 })}
+- Máximo: ${s.max.toLocaleString('es-ES', { maximumFractionDigits: 2 })}`).join('\n')}
 - Valores > 2 desviaciones del promedio son potenciales anomalías` : ''}
 
 CONFIGURACIÓN DEL GRÁFICO:
 - Tipo: ${chartConfig?.title || 'N/A'}
 - Eje X: ${chartConfig?.xKey || 'N/A'}
-- Eje Y: ${chartConfig?.yKey || 'N/A'}
+- Métricas: ${Object.keys(statsMap).join(', ') || chartConfig?.yKey || 'N/A'}
 
 Proporciona un análisis en español con EXACTAMENTE estas secciones:
 
@@ -575,11 +770,12 @@ REGLAS:
 - IMPORTANTE: Todos los valores monetarios DEBEN estar en DÓLARES ($), NUNCA en euros (€)
   * Reemplaza cualquier € con $ en tus números
   * Ejemplo: $1,500 (correcto), NO €1,500 (incorrecto)
+- FERIADOS ECUADOR: Si detectas días/semanas/meses con ventas inusualmente bajas, verifica si coinciden con feriados (ya los conoces del system prompt) y menciónalo explícitamente
 
 Responde SOLO con el texto del análisis.`;
 
       const response = await this.client.messages.create({
-        model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
+        model: this.model,
         max_tokens: 500,
         messages: [{ role: 'user', content: analysisPrompt }]
       });
@@ -589,6 +785,33 @@ Responde SOLO con el texto del análisis.`;
     } catch (error) {
       console.error('Analysis Error:', error);
       return null;
+    }
+  }
+
+  async generateFollowUps(userQuery, data, chartConfig) {
+    if (!this.client || !data || data.length === 0) return [];
+    try {
+      const sample = data.slice(0, 10);
+      const prompt = `El usuario preguntó: "${userQuery}"
+Los datos muestran: ${JSON.stringify(sample)}
+Título del gráfico: ${chartConfig?.title || ''}
+
+Genera exactamente 3 preguntas de seguimiento cortas y concretas en español que el usuario podría querer hacer a continuación, basadas en estos datos específicos.
+Responde SOLO con un array JSON de strings, sin explicaciones. Máximo 8 palabras por pregunta.
+Ejemplo: ["Top 5 clientes de esta categoría", "Comparar con el mes anterior", "¿Qué vendedor lidera?"]`;
+
+      const response = await this.client.messages.create({
+        model: this.model,
+        max_tokens: 150,
+        messages: [{ role: 'user', content: prompt }]
+      });
+
+      const text = response.content[0].text.trim();
+      const match = text.match(/\[[\s\S]*\]/);
+      if (!match) return [];
+      return JSON.parse(match[0]).slice(0, 3);
+    } catch (e) {
+      return [];
     }
   }
 
@@ -619,7 +842,7 @@ Responde SOLO con el texto del análisis.`;
       messages.push({ role: 'user', content: userQuery });
 
       const response = await this.client.messages.create({
-        model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
+        model: this.model,
         max_tokens: 1500,
         messages: messages,
         system: this.getSystemPrompt(metadata, dateFilter, userFilter, resolvedEntities)
