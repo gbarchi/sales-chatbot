@@ -39,6 +39,21 @@ function FitBounds({ points }) {
 function MapChart({ validPoints, latKey, lngKey, labelKey, valueKey, getMarkerColor, planRoute, haversine, chartConfig }) {
   const [routeMode, setRouteMode] = React.useState(false);
   const [routeResult, setRouteResult] = React.useState(null);
+  const [maxDias, setMaxDias] = React.useState(365);
+  const [proximosDias, setProximosDias] = React.useState(null); // null = desactivado
+
+  const getClientType = (point) => {
+    if (!point.TotalVenta || point.TotalVenta === 0 || point.DiasSinComprar == null) return 'prospecto';
+    if (Number(point.DiasSinComprar) > 180) return 'perdido';
+    return 'activo';
+  };
+
+  const getTypeColor = (point) => {
+    const type = getClientType(point);
+    if (type === 'prospecto') return '#94a3b8';
+    if (type === 'perdido') return '#7c3aed';
+    return getMarkerColor(point[valueKey]);
+  };
 
   const fmtValue = (row) => {
     if (!valueKey || row[valueKey] == null) return null;
@@ -58,19 +73,34 @@ function MapChart({ validPoints, latKey, lngKey, labelKey, valueKey, getMarkerCo
       UltimaCompra: 'Última compra', FechaUltimaCompra: 'Última compra',
       NombreVendedor: 'Vendedor', NombreSupervisor: 'Supervisor',
       TotalFacturas: 'Facturas', NumFacturas: 'Facturas',
-      PromedioMensual: 'Promedio mensual', Promedio: 'Promedio',
+      PromedioMensual: 'Promedio mensual', Promedio: 'Promedio', PromedioCompra: 'Promedio por factura',
+      TopFamilias: 'Familias',
       Cantidad: 'Cantidad', Margen: 'Margen',
     };
     return labels[key] || key.replace(/([A-Z])/g, ' $1').trim();
   };
 
-  const points = validPoints.map(r => ({
-    ...r,
-    lat: Number(r[latKey]),
-    lng: Number(r[lngKey]),
-    label: r[labelKey] || 'Cliente',
-    color: getMarkerColor(r[valueKey]),
-  }));
+  const points = (() => {
+    const mapped = validPoints.map(r => ({
+      ...r,
+      lat: Number(r[latKey]),
+      lng: Number(r[lngKey]),
+      label: r[labelKey] || 'Cliente',
+      color: getTypeColor(r),
+    }));
+    // Apply small jitter to overlapping markers so they're all visible
+    const seen = {};
+    return mapped.map(p => {
+      const key = `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`;
+      const count = seen[key] = (seen[key] || 0) + 1;
+      if (count > 1) {
+        const angle = (count - 2) * 137.5 * Math.PI / 180; // golden angle spread
+        const offset = 0.0003 * Math.floor((count - 1) / 1);
+        return { ...p, lat: p.lat + offset * Math.cos(angle), lng: p.lng + offset * Math.sin(angle) };
+      }
+      return p;
+    });
+  })();
 
   const handlePlanRoute = () => {
     const result = planRoute(points);
@@ -78,7 +108,19 @@ function MapChart({ validPoints, latKey, lngKey, labelKey, valueKey, getMarkerCo
     setRouteMode(true);
   };
 
-  const displayPoints = routeMode && routeResult ? routeResult.ordered : points;
+  const basePoints = routeMode && routeResult ? routeResult.ordered : points;
+  const hasDias = points.some(p => p.DiasSinComprar != null);
+  const hasPrediccion = points.some(p => p.DiasHastaCompra != null);
+  const displayPoints = basePoints
+    .filter(p => !hasDias || maxDias >= 365 || p.DiasSinComprar == null || Number(p.DiasSinComprar) <= maxDias)
+    .filter(p => proximosDias === null || (p.DiasHastaCompra != null && Number(p.DiasHastaCompra) >= 0 && Number(p.DiasHastaCompra) <= proximosDias));
+
+  const openInGoogleMaps = (orderedPoints) => {
+    const stops = orderedPoints.slice(0, 10);
+    const waypoints = stops.map(p => `${p.lat},${p.lng}`).join('/');
+    window.open(`https://www.google.com/maps/dir/${waypoints}`, '_blank');
+  };
+
   const center = [
     points.reduce((s, p) => s + p.lat, 0) / points.length,
     points.reduce((s, p) => s + p.lng, 0) / points.length,
@@ -89,20 +131,53 @@ function MapChart({ validPoints, latKey, lngKey, labelKey, valueKey, getMarkerCo
       {/* Controls */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 13, color: '#64748b' }}>
-          {points.length} cliente{points.length !== 1 ? 's' : ''}
+          {displayPoints.length}{displayPoints.length !== points.length ? `/${points.length}` : ''} cliente{displayPoints.length !== 1 ? 's' : ''}
         </span>
-        {valueKey && (
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 11 }}>
-            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#10b981', display: 'inline-block' }} /> Alto
-            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#f59e0b', display: 'inline-block', marginLeft: 4 }} /> Medio
-            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ef4444', display: 'inline-block', marginLeft: 4 }} /> Bajo
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 11, flexWrap: 'wrap' }}>
+          {valueKey && <>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#10b981', display: 'inline-block' }} /> <span style={{ marginRight: 4 }}>Alto</span>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#f59e0b', display: 'inline-block' }} /> <span style={{ marginRight: 4 }}>Medio</span>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} /> <span style={{ marginRight: 4 }}>Bajo</span>
+          </>}
+          <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#7c3aed', display: 'inline-block' }} /> <span style={{ marginRight: 4 }}>Perdido</span>
+          <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#94a3b8', display: 'inline-block', border: '1px dashed #64748b' }} /> <span>Prospecto</span>
+        </div>
+        {hasDias && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#64748b' }}>
+            <span>≤ {maxDias}d sin comprar</span>
+            <input type="range" min={15} max={365} step={15} value={maxDias}
+              onChange={e => setMaxDias(Number(e.target.value))}
+              style={{ width: 80, cursor: 'pointer' }} />
+          </div>
+        )}
+        {hasPrediccion && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
+            <button
+              onClick={() => setProximosDias(proximosDias === null ? 14 : null)}
+              style={{ padding: '3px 8px', borderRadius: 5, border: `1px solid ${proximosDias !== null ? '#16a34a' : '#e2e8f0'}`, background: proximosDias !== null ? '#dcfce7' : 'white', color: proximosDias !== null ? '#15803d' : '#64748b', fontSize: 11, cursor: 'pointer', fontWeight: proximosDias !== null ? 600 : 400 }}
+            >
+              {proximosDias !== null ? `✅ Próximos ${proximosDias}d` : 'Por comprar'}
+            </button>
+            {proximosDias !== null && (
+              <input type="range" min={3} max={30} step={1} value={proximosDias}
+                onChange={e => setProximosDias(Number(e.target.value))}
+                style={{ width: 70, cursor: 'pointer' }} />
+            )}
           </div>
         )}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
           {routeMode ? (
-            <button onClick={() => { setRouteMode(false); setRouteResult(null); }} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid #e2e8f0', background: 'white', fontSize: 12, cursor: 'pointer' }}>
-              Cancelar ruta
-            </button>
+            <>
+              <button
+                onClick={() => openInGoogleMaps(displayPoints)}
+                style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid #86efac', background: '#dcfce7', color: '#15803d', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}
+              >
+                📍 Google Maps{displayPoints.length > 10 ? ' (10)' : ''}
+              </button>
+              <button onClick={() => { setRouteMode(false); setRouteResult(null); }} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid #e2e8f0', background: 'white', fontSize: 12, cursor: 'pointer' }}>
+                Cancelar ruta
+              </button>
+            </>
           ) : (
             <button onClick={handlePlanRoute} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid #3b82f6', background: '#eff6ff', color: '#2563eb', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>
               Planificar ruta
@@ -113,12 +188,14 @@ function MapChart({ validPoints, latKey, lngKey, labelKey, valueKey, getMarkerCo
 
       {routeMode && routeResult && (
         <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '8px 14px', fontSize: 12, color: '#1d4ed8' }}>
-          Ruta optimizada: <strong>{routeResult.ordered.length} visitas</strong> · ~<strong>{routeResult.totalKm} km</strong> estimados
+          Ruta optimizada: <strong>{displayPoints.length} visitas</strong> · ~<strong>{routeResult.totalKm} km</strong> estimados
         </div>
       )}
 
-      {/* Map */}
-      <div style={{ height: 440, borderRadius: 10, overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+      {/* Map + Side list */}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+        {/* Map */}
+        <div style={{ flex: '1 1 65%', minWidth: 0, height: 440, borderRadius: 10, overflow: 'hidden', border: '1px solid #e2e8f0' }}>
         <MapContainer center={center} zoom={10} style={{ height: '100%', width: '100%' }} scrollWheelZoom={true}>
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a>'
@@ -129,13 +206,30 @@ function MapChart({ validPoints, latKey, lngKey, labelKey, valueKey, getMarkerCo
           {/* Route line */}
           {routeMode && routeResult && (
             <Polyline
-              positions={routeResult.ordered.map(p => [p.lat, p.lng])}
+              positions={displayPoints.map(p => [p.lat, p.lng])}
               pathOptions={{ color: '#3b82f6', weight: 2, dashArray: '6 4', opacity: 0.7 }}
             />
           )}
 
+          {/* Credit exceeded outer ring (visual alert) */}
+          {displayPoints
+            .filter(p => Number(p.CreditLine) > 0 && Number(p.Balance) / Number(p.CreditLine) >= 1)
+            .map((point, i) => (
+              <CircleMarker
+                key={`credit-ring-${i}`}
+                center={[point.lat, point.lng]}
+                radius={routeMode ? 16 : 13}
+                pathOptions={{ color: '#dc2626', fillOpacity: 0, weight: 2, opacity: 0.75 }}
+              />
+            ))
+          }
+
           {/* Markers */}
-          {displayPoints.map((point, i) => (
+          {displayPoints.map((point, i) => {
+            const clientType = getClientType(point);
+            const creditPct = Number(point.CreditLine) > 0 ? Number(point.Balance) / Number(point.CreditLine) : 0;
+            const diasHastaCompra = point.DiasHastaCompra != null ? Math.round(Number(point.DiasHastaCompra)) : null;
+            return (
             <CircleMarker
               key={i}
               center={[point.lat, point.lng]}
@@ -143,30 +237,117 @@ function MapChart({ validPoints, latKey, lngKey, labelKey, valueKey, getMarkerCo
               pathOptions={{ color: point.color, fillColor: point.color, fillOpacity: 0.85, weight: 2 }}
             >
               <Popup>
-                <div style={{ fontSize: 13, minWidth: 160 }}>
+                <div style={{ fontSize: 13, minWidth: 190 }}>
                   {routeMode && <div style={{ fontWeight: 700, color: '#3b82f6', marginBottom: 4 }}>Visita #{i + 1}</div>}
-                  <div style={{ fontWeight: 600, marginBottom: 4 }}>{point.label}</div>
-                  {point.Ciudad && <div style={{ color: '#64748b', fontSize: 12 }}>📍 {point.Ciudad}{point.Provincia ? `, ${point.Provincia}` : ''}</div>}
+
+                  {/* B: Client type badge */}
+                  {clientType === 'prospecto' && (
+                    <div style={{ display: 'inline-block', background: '#f1f5f9', color: '#64748b', fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, marginBottom: 4 }}>SIN COMPRAS</div>
+                  )}
+                  {clientType === 'perdido' && (
+                    <div style={{ display: 'inline-block', background: '#ede9fe', color: '#7c3aed', fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, marginBottom: 4 }}>INACTIVO +180d</div>
+                  )}
+
+                  <div style={{ fontWeight: 600, marginBottom: 2 }}>{point.label}</div>
+                  {point.Ciudad && <div style={{ color: '#64748b', fontSize: 12, marginBottom: 6 }}>📍 {point.Ciudad}{point.Provincia ? `, ${point.Provincia}` : ''}</div>}
+
                   {valueKey && fmtValue(point) && (
-                    <div style={{ marginTop: 4, color: '#475569', fontSize: 12 }}>
+                    <div style={{ color: '#475569', fontSize: 12 }}>
                       {humanize(valueKey)}: <strong>{fmtValue(point)}</strong>
                     </div>
                   )}
-                  {/* Show other relevant fields (excluding already-shown keys) */}
-                  {Object.entries(point).filter(([k]) =>
-                    !['lat','lng','label','color',latKey,lngKey,labelKey,valueKey,'CardCode','Cardname','Lat','Lng','Ciudad','Provincia','NombreVendedor'].includes(k)
-                    && typeof point[k] !== 'object'
-                  ).slice(0, 3).map(([k, v]) => (
-                    <div key={k} style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>
-                      {humanize(k)}: {typeof v === 'number' && (k.toLowerCase().includes('venta') || k.toLowerCase().includes('total')) ? `$${Math.round(v).toLocaleString()}` : String(v ?? '—')}
+                  {point.PromedioCompra != null && (
+                    <div style={{ color: '#475569', fontSize: 12 }}>
+                      Promedio por factura: <strong>${Math.round(Number(point.PromedioCompra)).toLocaleString()}</strong>
                     </div>
-                  ))}
+                  )}
+                  {point.NumFacturas != null && (
+                    <div style={{ color: '#475569', fontSize: 12 }}>
+                      Facturas: <strong>{point.NumFacturas}</strong>
+                    </div>
+                  )}
+                  {point.DiasSinComprar != null && valueKey !== 'DiasSinComprar' && (
+                    <div style={{ color: '#475569', fontSize: 12 }}>
+                      Días sin comprar: <strong>{Math.round(Number(point.DiasSinComprar))}</strong>
+                    </div>
+                  )}
+
+                  {/* D: Purchase prediction */}
+                  {diasHastaCompra != null && (
+                    <div style={{ color: diasHastaCompra <= 0 ? '#dc2626' : diasHastaCompra <= 7 ? '#16a34a' : '#475569', fontSize: 12, marginTop: 2 }}>
+                      {diasHastaCompra <= 0
+                        ? `⚠️ Debería haber comprado hace ${Math.abs(diasHastaCompra)}d`
+                        : diasHastaCompra <= 7
+                        ? `✅ Comprará en ~${diasHastaCompra}d (esta semana)`
+                        : `Próxima compra: ~${diasHastaCompra}d`}
+                    </div>
+                  )}
+
+                  {point.TopFamilias && (
+                    <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid #f1f5f9', color: '#64748b', fontSize: 11 }}>
+                      {point.TopFamilias}
+                    </div>
+                  )}
+
+                  {/* C: Balance/Credit with alert */}
+                  {(point.Balance != null || point.CreditLine != null) && (
+                    <div style={{ marginTop: 4, fontSize: 11 }}>
+                      <span style={{ color: '#94a3b8' }}>
+                        {point.Balance != null && `Saldo: $${Math.round(Number(point.Balance)).toLocaleString()}`}
+                        {point.Balance != null && point.CreditLine != null && ' · '}
+                        {point.CreditLine != null && `Crédito: $${Math.round(Number(point.CreditLine)).toLocaleString()}`}
+                      </span>
+                      {creditPct >= 1 && (
+                        <div style={{ color: '#dc2626', fontWeight: 600, marginTop: 2 }}>🚫 Crédito excedido ({Math.round(creditPct * 100)}%)</div>
+                      )}
+                      {creditPct >= 0.8 && creditPct < 1 && (
+                        <div style={{ color: '#f59e0b', fontWeight: 600, marginTop: 2 }}>⚠️ Crédito casi agotado ({Math.round(creditPct * 100)}%)</div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </Popup>
             </CircleMarker>
-          ))}
+            );
+          })}
         </MapContainer>
-      </div>
+        </div>{/* end map div */}
+
+        {/* Side list */}
+        <div style={{ flex: '0 0 34%', maxHeight: 440, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 10, background: 'white' }}>
+          <div style={{ padding: '8px 12px', borderBottom: '1px solid #f1f5f9', fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', position: 'sticky', top: 0, background: 'white' }}>
+            {routeMode ? 'Orden de visita' : 'Clientes'}
+          </div>
+          {displayPoints.map((point, i) => {
+            const listType = getClientType(point);
+            const listDiasHasta = point.DiasHastaCompra != null ? Math.round(Number(point.DiasHastaCompra)) : null;
+            return (
+            <div key={i} style={{ padding: '8px 12px', borderBottom: '1px solid #f8fafc', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+              {routeMode && (
+                <span style={{ fontWeight: 700, color: '#3b82f6', fontSize: 12, minWidth: 22 }}>#{i + 1}</span>
+              )}
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <div style={{ fontWeight: 600, fontSize: 12, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{point.label}</div>
+                  {listType === 'prospecto' && <span style={{ flexShrink: 0, background: '#f1f5f9', color: '#94a3b8', fontSize: 9, fontWeight: 700, padding: '0 4px', borderRadius: 3 }}>NUEVO</span>}
+                  {listType === 'perdido' && <span style={{ flexShrink: 0, background: '#ede9fe', color: '#7c3aed', fontSize: 9, fontWeight: 700, padding: '0 4px', borderRadius: 3 }}>+180d</span>}
+                </div>
+                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>
+                  {point.Ciudad && <span>{point.Ciudad}</span>}
+                  {point.DiasSinComprar != null && <span style={{ marginLeft: point.Ciudad ? 4 : 0 }}>· {Math.round(Number(point.DiasSinComprar))}d</span>}
+                  {listDiasHasta != null && listDiasHasta <= 7 && (
+                    <span style={{ marginLeft: 4, color: '#16a34a', fontWeight: 600 }}>· compra ~{listDiasHasta}d</span>
+                  )}
+                </div>
+              </div>
+              {valueKey && point[valueKey] != null && (
+                <span style={{ marginLeft: 'auto', fontSize: 11, color: '#475569', whiteSpace: 'nowrap', paddingLeft: 4 }}>{fmtValue(point)}</span>
+              )}
+            </div>
+            );
+          })}
+        </div>
+      </div>{/* end map+list row */}
     </div>
   );
 }

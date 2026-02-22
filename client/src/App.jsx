@@ -6,7 +6,8 @@ import LoginPage from './components/auth/LoginPage';
 import AdminPanel from './components/admin/AdminPanel';
 import QueryLogsPanel from './components/admin/QueryLogsPanel';
 import { useAuth } from './context/AuthContext';
-import { fetchSuggestions, fetchMetadata } from './services/api';
+import { fetchSuggestions, fetchMetadata, getFavorites } from './services/api';
+import HelpModal from './components/chat/HelpModal';
 
 function App() {
   const { isAuthenticated, loading: authLoading, user, logout } = useAuth();
@@ -17,6 +18,8 @@ function App() {
   const [dateFilter, setDateFilter] = useState({ id: 'all', label: 'Todo', range: null });
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [showQueryLogs, setShowQueryLogs] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const [favorites, setFavorites] = useState([]);
 
   // useEffect must be before any conditional returns (React hooks rules)
   useEffect(() => {
@@ -102,6 +105,12 @@ function App() {
     return () => { cancelled = true; };
   }, [isAuthenticated]);
 
+  // Load favorites when authenticated
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    getFavorites().then(data => setFavorites(Array.isArray(data) ? data : [])).catch(() => {});
+  }, [isAuthenticated]);
+
   // Show loading while checking auth
   if (authLoading) {
     return (
@@ -180,9 +189,10 @@ function App() {
   };
 
   return (
-    <Layout user={user} onLogout={logout} onAdminClick={() => setShowAdminPanel(true)} onLogsClick={() => setShowQueryLogs(true)}>
+    <Layout user={user} onLogout={logout} onAdminClick={() => setShowAdminPanel(true)} onLogsClick={() => setShowQueryLogs(true)} onHelpClick={() => setShowHelp(true)}>
       {showAdminPanel && <AdminPanel onClose={() => setShowAdminPanel(false)} />}
       {showQueryLogs  && <QueryLogsPanel onClose={() => setShowQueryLogs(false)} />}
+      {showHelp       && <HelpModal onClose={() => setShowHelp(false)} />}
       <div className="app-container">
         <ChatPanel
           messages={messages}
@@ -195,6 +205,8 @@ function App() {
           dateFilter={dateFilter}
           onDateFilterChange={setDateFilter}
           dateRange={metadata?.dateRange}
+          favorites={favorites}
+          setFavorites={setFavorites}
         />
       </div>
       <style>{`

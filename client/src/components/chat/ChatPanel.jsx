@@ -2,13 +2,15 @@ import React, { useRef, useEffect, useCallback, useState } from 'react';
 import ChatMessage from './ChatMessage';
 import ChatInput from './ChatInput';
 import QueryHistoryModal from './QueryHistoryModal';
+import FavoritesModal from './FavoritesModal';
 import DateFilter from '../common/DateFilter';
-import { sendChatMessage } from '../../services/api';
+import { sendChatMessage, saveFavorite, deleteFavorite, renameFavorite } from '../../services/api';
 
-function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSuggestionClick, isLoading, setIsLoading, dateFilter, onDateFilterChange, dateRange }) {
+function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSuggestionClick, isLoading, setIsLoading, dateFilter, onDateFilterChange, dateRange, favorites, setFavorites }) {
   const messagesEndRef = useRef(null);
   const abortControllerRef = useRef(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [showFavorites, setShowFavorites] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const timerRef = useRef(null);
 
@@ -62,6 +64,37 @@ function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSugge
 
   const handleFollowUpClick = (query) => {
     handleSendMessage(query);
+  };
+
+  const handleSaveFavorite = async (name, text) => {
+    try {
+      const newFav = await saveFavorite(name, text);
+      setFavorites(prev => [newFav, ...prev]);
+    } catch (err) {
+      console.error('Error saving favorite:', err);
+    }
+  };
+
+  const handleDeleteFavorite = async (id) => {
+    try {
+      await deleteFavorite(id);
+      setFavorites(prev => prev.filter(f => f.id !== id));
+    } catch (err) {
+      console.error('Error deleting favorite:', err);
+    }
+  };
+
+  const handleRenameFavorite = async (id, newName) => {
+    try {
+      await renameFavorite(id, newName);
+      setFavorites(prev => prev.map(f => f.id === id ? { ...f, name: newName } : f));
+    } catch (err) {
+      console.error('Error renaming favorite:', err);
+    }
+  };
+
+  const handleSelectFavorite = (queryText) => {
+    handleSendMessage(queryText);
   };
 
   const handleSendMessage = async (message) => {
@@ -130,14 +163,26 @@ function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSugge
   return (
     <div className="chat-panel">
       <div className="messages-container">
-        {messages.map((message) => (
-          <ChatMessage
-            key={message.id}
-            message={message}
-            onClarificationSelect={handleClarificationSelect}
-            onFollowUpClick={handleFollowUpClick}
-          />
-        ))}
+        {messages.map((message, index) => {
+          // For bot messages, find the preceding user message as userQuery
+          let userQuery = '';
+          if (message.type === 'bot' && index > 0) {
+            const prev = messages[index - 1];
+            if (prev && prev.type === 'user') {
+              userQuery = prev.content;
+            }
+          }
+          return (
+            <ChatMessage
+              key={message.id}
+              message={message}
+              onClarificationSelect={handleClarificationSelect}
+              onFollowUpClick={handleFollowUpClick}
+              userQuery={userQuery}
+              onSaveFavorite={handleSaveFavorite}
+            />
+          );
+        })}
 
         {isLoading && (
           <div className="loading-message">
@@ -190,6 +235,7 @@ function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSugge
         onSend={handleSendMessage}
         disabled={isLoading}
         onHistoryClick={() => setShowHistory(true)}
+        onFavoritesClick={() => setShowFavorites(true)}
       />
 
       <QueryHistoryModal
@@ -197,6 +243,16 @@ function ChatPanel({ messages, suggestions, onNewMessage, onBotResponse, onSugge
         onClose={() => setShowHistory(false)}
         onSelectQuery={handleSendMessage}
       />
+
+      {showFavorites && (
+        <FavoritesModal
+          favorites={favorites || []}
+          onClose={() => setShowFavorites(false)}
+          onSelect={handleSelectFavorite}
+          onDelete={handleDeleteFavorite}
+          onRename={handleRenameFavorite}
+        />
+      )}
 
       <style>{`
         .chat-panel {

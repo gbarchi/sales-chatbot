@@ -131,6 +131,9 @@ class DataService {
           const ciudadCol   = cols.includes('ciudad') ? 'ciudad' : (cols.includes('city') ? 'city' : null);
           const provinciaCol = cols.includes('provincia') ? 'provincia' : null;
           const vendedorCol  = cols.includes('nombrevendedor') ? 'nombrevendedor' : null;
+          const slpcodeCol    = cols.includes('slpcode')    ? 'SlpCode'    : null;
+          const balanceCol    = cols.includes('balance')    ? 'Balance'    : null;
+          const creditlineCol = cols.includes('creditline') ? 'creditline' : null;
 
           let latExpr, lngExpr;
           if (hasLatLng) {
@@ -155,7 +158,10 @@ class DataService {
               ${lngExpr}                                          AS Lng,
               ${ciudadCol   ? `CAST(${ciudadCol}    AS VARCHAR)` : "NULL::VARCHAR"} AS Ciudad,
               ${provinciaCol ? `CAST(${provinciaCol} AS VARCHAR)` : "NULL::VARCHAR"} AS Provincia,
-              ${vendedorCol  ? `CAST(${vendedorCol}  AS VARCHAR)` : "NULL::VARCHAR"} AS NombreVendedor
+              ${vendedorCol  ? `CAST(${vendedorCol}  AS VARCHAR)` : "NULL::VARCHAR"} AS NombreVendedor,
+              ${slpcodeCol    ? `TRY_CAST(${slpcodeCol}    AS INTEGER)` : "NULL::INTEGER"} AS SlpCode,
+              ${balanceCol    ? `TRY_CAST(${balanceCol}    AS DOUBLE)`  : "NULL::DOUBLE"}  AS Balance,
+              ${creditlineCol ? `CASE WHEN TRY_CAST(${creditlineCol} AS DOUBLE) < 20 THEN 0 ELSE TRY_CAST(${creditlineCol} AS DOUBLE) END` : "NULL::DOUBLE"}  AS CreditLine
             FROM read_csv_auto('${clientsCsvPath.replace(/'/g, "''")}', header=true, ignore_errors=true)
             WHERE ${latExpr} IS NOT NULL AND ${lngExpr} IS NOT NULL
           `;

@@ -49,6 +49,18 @@ class UserService {
     // Create index for efficient history queries
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_history_user ON query_history(user_id, timestamp DESC)');
 
+    // Create saved queries (favorites) table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS saved_queries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        query_text TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+
     // Create query logs table (admin analytics)
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS query_logs (
@@ -336,6 +348,27 @@ class UserService {
     `).run(userId);
 
     return result.changes;
+  }
+
+  // Get saved queries (favorites) for a user
+  getSavedQueries(userId) {
+    return this.db.prepare('SELECT * FROM saved_queries WHERE user_id = ? ORDER BY created_at DESC').all(userId);
+  }
+
+  // Save a query as favorite
+  saveQuery(userId, name, queryText) {
+    const result = this.db.prepare('INSERT INTO saved_queries (user_id, name, query_text) VALUES (?, ?, ?)').run(userId, name, queryText);
+    return { id: result.lastInsertRowid };
+  }
+
+  // Delete a saved query (favorite)
+  deleteSavedQuery(userId, id) {
+    this.db.prepare('DELETE FROM saved_queries WHERE id = ? AND user_id = ?').run(id, userId);
+  }
+
+  // Rename a saved query (favorite)
+  renameSavedQuery(userId, id, newName) {
+    this.db.prepare('UPDATE saved_queries SET name = ? WHERE id = ? AND user_id = ?').run(newName, id, userId);
   }
 
   // Save a query log entry (fire-and-forget safe — never throws)

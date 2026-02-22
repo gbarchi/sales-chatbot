@@ -48,6 +48,37 @@ function DataTable({ data }) {
     }));
   };
 
+  const humanizeCol = (col) => {
+    const labels = {
+      // Clientes / crédito
+      Cardname: 'Cliente', CardCode: 'Código', NombreCliente: 'Cliente',
+      CreditLine: 'Cupo Crédito', Cupo_Credito: 'Cupo Crédito',
+      Balance: 'Saldo Pendiente', Saldo_Pendiente: 'Saldo Pendiente',
+      // Ventas
+      TotalVenta: 'Total Venta', LineTotal: 'Total Venta',
+      LineCost: 'Costo', Margen: 'Margen (%)',
+      Cantidad: 'Cantidad', NumFacturas: 'Facturas', NumClientes: 'Clientes',
+      PromedioCompra: 'Promedio / Factura', Promedio: 'Promedio',
+      // Fechas / días
+      Fecha: 'Fecha', FechaFactura: 'Fecha', UltimaCompra: 'Última Compra',
+      DiasSinComprar: 'Días sin comprar', FrecuenciaDias: 'Frecuencia (días)',
+      DiasHastaCompra: 'Próxima compra (días)',
+      // Geografía
+      Ciudad: 'Ciudad', Provincia: 'Provincia', CiudadPrincipal: 'Ciudad',
+      // Vendedores
+      NombreVendedor: 'Vendedor', NombreSupervisor: 'Supervisor',
+      // Productos
+      ItmsgrpName: 'Familia', SubFamiliaName: 'Subfamilia', SubCategoria: 'Subcategoría',
+      TopFamilias: 'Familias',
+    };
+    if (labels[col]) return labels[col];
+    // Fallback: replace underscores/CamelCase with spaces and add accents
+    return col
+      .replace(/_/g, ' ')
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/\b\w/g, c => c.toUpperCase());
+  };
+
   const formatValue = (value, key) => {
     if (value === null || value === undefined) return '-';
 
@@ -103,7 +134,7 @@ function DataTable({ data }) {
               {columns.map((col) => (
                 <th key={col} onClick={() => handleSort(col)}>
                   <div className="th-content">
-                    <span>{col}</span>
+                    <span>{humanizeCol(col)}</span>
                     {sortConfig.key === col && (
                       <span className="sort-indicator">
                         {sortConfig.direction === 'asc' ? '▲' : '▼'}

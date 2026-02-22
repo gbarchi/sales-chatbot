@@ -271,3 +271,56 @@ export async function fetchQueryStats({ date_from = null, date_to = null, userna
 
   return response.json();
 }
+
+// ========== Favorites (Saved Queries) API Functions ==========
+
+export async function getFavorites() {
+  const response = await fetch(`${API_BASE}/favorites`, {
+    credentials: 'include'
+  });
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.error || 'Error fetching favorites');
+  }
+  return response.json();
+}
+
+export async function saveFavorite(name, queryText) {
+  const response = await fetch(`${API_BASE}/favorites`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ name, query_text: queryText })
+  });
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.error || 'Error saving favorite');
+  }
+  return response.json();
+}
+
+export async function deleteFavorite(id) {
+  const response = await fetch(`${API_BASE}/favorites/${id}`, {
+    method: 'DELETE',
+    credentials: 'include'
+  });
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.error || 'Error deleting favorite');
+  }
+  return response.json();
+}
+
+export async function renameFavorite(id, name) {
+  const response = await fetch(`${API_BASE}/favorites/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ name })
+  });
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.error || 'Error renaming favorite');
+  }
+  return response.json();
+}

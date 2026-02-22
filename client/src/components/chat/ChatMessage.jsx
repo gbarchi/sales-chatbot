@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import ChartCarousel from '../charts/ChartCarousel';
 import ChartContainer from '../charts/ChartContainer';
 
-function ChatMessage({ message, onClarificationSelect, onFollowUpClick }) {
+function ChatMessage({ message, onClarificationSelect, onFollowUpClick, userQuery, onSaveFavorite }) {
   const [showSQL, setShowSQL] = useState(false);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [saveName, setSaveName] = useState('');
   const isBot = message.type === 'bot';
   const hasChart = isBot && message.data && message.data.length > 0;
   const hasMultiResults = isBot && message.results && message.results.length > 0;
@@ -12,6 +14,22 @@ function ChatMessage({ message, onClarificationSelect, onFollowUpClick }) {
     const drillQuery = `Muéstrame el detalle de ventas de ${value}`;
     const event = new CustomEvent('drillDownQuery', { detail: drillQuery });
     window.dispatchEvent(event);
+  };
+
+  const handleOpenSaveDialog = () => {
+    setSaveName(userQuery || '');
+    setShowSaveDialog(true);
+  };
+
+  const handleSave = () => {
+    if (saveName.trim() && onSaveFavorite) {
+      onSaveFavorite(saveName.trim(), userQuery);
+    }
+    setShowSaveDialog(false);
+  };
+
+  const handleCancelSave = () => {
+    setShowSaveDialog(false);
   };
 
   // Render inline markdown: **bold** and *italic*
@@ -32,7 +50,35 @@ function ChatMessage({ message, onClarificationSelect, onFollowUpClick }) {
   };
 
   return (
-    <div className={`chat-message ${isBot ? 'bot' : 'user'} ${message.isError ? 'error' : ''}`}>
+    <div className={`chat-message ${isBot ? 'bot' : 'user'} ${message.isError ? 'error' : ''} chat-message-wrapper`}>
+      {isBot && !message.isError && !!userQuery && (
+        <div className="save-favorite-area">
+          <button
+            className="save-favorite-btn"
+            onClick={handleOpenSaveDialog}
+            title="Guardar como favorito"
+          >
+            &#9733;
+          </button>
+          {showSaveDialog && (
+            <div className="save-favorite-dialog" onClick={e => e.stopPropagation()}>
+              <div className="save-favorite-title">Guardar como favorito</div>
+              <input
+                className="save-favorite-input"
+                value={saveName}
+                onChange={e => setSaveName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') handleCancelSave(); }}
+                placeholder="Nombre del favorito"
+                autoFocus
+              />
+              <div className="save-favorite-buttons">
+                <button className="save-fav-cancel" onClick={handleCancelSave}>Cancelar</button>
+                <button className="save-fav-save" onClick={handleSave}>Guardar</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       {isBot && (
         <div className="avatar">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -149,6 +195,117 @@ function ChatMessage({ message, onClarificationSelect, onFollowUpClick }) {
           display: flex;
           gap: 12px;
           max-width: 100%;
+        }
+
+        .chat-message-wrapper {
+          position: relative;
+        }
+
+        .save-favorite-area {
+          position: absolute;
+          top: 4px;
+          right: 4px;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          z-index: 10;
+        }
+
+        .save-favorite-btn {
+          width: 28px;
+          height: 28px;
+          border: none;
+          background: transparent;
+          color: #ccc;
+          cursor: pointer;
+          border-radius: 6px;
+          font-size: 18px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          opacity: 0;
+          transition: all 0.2s ease;
+          line-height: 1;
+        }
+
+        .chat-message-wrapper:hover .save-favorite-btn {
+          opacity: 1;
+        }
+
+        .save-favorite-btn:hover {
+          color: #f59e0b;
+          background: rgba(245, 158, 11, 0.1);
+        }
+
+        .save-favorite-dialog {
+          background: white;
+          border: 1px solid var(--border-color);
+          border-radius: 10px;
+          padding: 12px 14px;
+          box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+          width: 260px;
+          margin-top: 4px;
+        }
+
+        .save-favorite-title {
+          font-size: 13px;
+          font-weight: 600;
+          color: var(--text-primary);
+          margin-bottom: 8px;
+        }
+
+        .save-favorite-input {
+          width: 100%;
+          border: 1px solid var(--border-color);
+          border-radius: 6px;
+          padding: 6px 10px;
+          font-size: 13px;
+          font-family: inherit;
+          outline: none;
+          color: var(--text-primary);
+          box-sizing: border-box;
+          margin-bottom: 8px;
+        }
+
+        .save-favorite-input:focus {
+          border-color: var(--primary-color);
+        }
+
+        .save-favorite-buttons {
+          display: flex;
+          justify-content: flex-end;
+          gap: 8px;
+        }
+
+        .save-fav-cancel {
+          padding: 5px 12px;
+          border: 1px solid var(--border-color);
+          background: white;
+          border-radius: 6px;
+          font-size: 12px;
+          cursor: pointer;
+          color: var(--text-secondary);
+          transition: all 0.15s ease;
+        }
+
+        .save-fav-cancel:hover {
+          background: #f1f3f4;
+        }
+
+        .save-fav-save {
+          padding: 5px 12px;
+          border: none;
+          background: var(--primary-color);
+          color: white;
+          border-radius: 6px;
+          font-size: 12px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+
+        .save-fav-save:hover {
+          background: var(--primary-dark);
         }
 
         .chat-message.user {

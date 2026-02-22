@@ -1,6 +1,6 @@
 import React from 'react';
 
-function Layout({ children, user, onLogout, onAdminClick, onLogsClick }) {
+function Layout({ children, user, onLogout, onAdminClick, onLogsClick, onHelpClick }) {
   return (
     <div className="layout">
       <header className="header">
@@ -38,6 +38,13 @@ function Layout({ children, user, onLogout, onAdminClick, onLogsClick }) {
                     </button>
                   </>
                 )}
+                <button className="admin-btn" onClick={onHelpClick} title="Guía de uso">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
+                    <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    <circle cx="12" cy="17" r="0.5" fill="currentColor" stroke="currentColor" strokeWidth="1.5"/>
+                  </svg>
+                </button>
                 <button className="logout-btn" onClick={onLogout} title="Cerrar sesión">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                     <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>

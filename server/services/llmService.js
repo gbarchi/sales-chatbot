@@ -83,39 +83,72 @@ ${metadata.holidays.map(h => `${h.date}: ${h.name}`).join('\n')}
 INSTRUCCIÓN: Cuando analices períodos con ventas bajas o caídas inusuales (días, semanas, meses), SIEMPRE verifica si coinciden con feriados de la lista anterior y menciónalo en tu análisis. Ejemplo: "Las bajas ventas del 16-17 feb 2026 se explican por el feriado de Carnaval."` : ''}
 
 ${metadata.hasClients ? `
-TABLA ADICIONAL 'clients' (geolocalización de clientes — SOLO tiene coordenadas y ciudad):
+TABLA ADICIONAL 'clients' (geolocalización y asignación de clientes desde ERP):
 - CardCode (STRING): clave de JOIN con sales.CardCode
-- Cardname (STRING): nombre del cliente (puede ser NULL — usa sales.Cardname si es NULL)
+- Cardname (STRING): nombre del cliente
 - Lat (DOUBLE): latitud geográfica
 - Lng (DOUBLE): longitud geográfica
 - Ciudad (STRING): ciudad del cliente
 - Provincia (STRING): provincia (puede ser NULL)
-- NombreVendedor (STRING): vendedor asignado (puede ser NULL — usa sales.NombreVendedor si es NULL)
+- NombreVendedor (STRING): vendedor asignado (puede ser NULL)
+- SlpCode (INTEGER): código del vendedor asignado — mismo que sales.Slpcode. Usar para filtrar clientes de un vendedor (más preciso que filtrar por NombreVendedor en sales).
+- Balance (DOUBLE): saldo pendiente del cliente
+- CreditLine (DOUBLE): límite de crédito asignado al cliente
 
 CHART TYPE 'map':
 - Usa 'map' ÚNICAMENTE cuando el usuario mencione explícitamente "mapa", "en el mapa", "geográfico", "ubicación", "ruta de visitas" o similares.
 - NUNCA uses 'map' para consultas de churn, ventas por cliente, inactivos, etc. — esas usan table/bar.
-- SQL SIEMPRE debe incluir: c.Lat, c.Lng + una columna de nombre del cliente + métrica opcional.
-- NUNCA uses agregados (MAX, SUM, COUNT) en el WHERE. Usa un CTE para pre-calcular métricas, luego filtra en el outer WHERE.
-- IMPORTANTE: Para filtrar clientes por vendedor, usa SIEMPRE el "último vendedor que atendió al cliente" (arg_max). Esto evita mostrar clientes de zonas anteriores que ya no pertenecen al vendedor actual.
-- arg_max(columna, criterio) es la función DuckDB para obtener el valor de 'columna' correspondiente al máximo de 'criterio'.
-- Ejemplo SQL de mapa con filtro de días sin comprar:
-  WITH last_vendor AS (
+- SQL SIEMPRE debe incluir: c.Lat, c.Lng + c.Cardname + métricas: TotalVenta, NumFacturas, PromedioCompra, TopFamilias, DiasSinComprar, FrecuenciaDias, DiasHastaCompra, Balance, CreditLine.
+- NUNCA uses agregados (MAX, SUM, COUNT) en el WHERE. Usa CTEs para pre-calcular métricas, luego filtra en el outer WHERE.
+- Para filtrar clientes de un vendedor: usa c.SlpCode = (SELECT DISTINCT Slpcode FROM sales WHERE NombreVendedor = '...' LIMIT 1).
+- Omite el filtro vs.UltimaCompra IS NOT NULL si el usuario quiere ver todos los clientes (incluyendo prospectos sin historial).
+- Ejemplo SQL completo de mapa:
+  WITH vendor_sales AS (
     SELECT CardCode,
-           arg_max(NombreVendedor, Fecha) AS UltimoVendedor,
-           MAX(Fecha) AS UltimaCompra,
-           SUM(LineTotal) AS TotalVenta
-    FROM sales
-    GROUP BY CardCode
+           MAX(Fecha)                                          AS UltimaCompra,
+           SUM(LineTotal)                                      AS TotalVenta,
+           COUNT(DISTINCT DocNum)                              AS NumFacturas,
+           SUM(LineTotal) / NULLIF(COUNT(DISTINCT DocNum), 0) AS PromedioCompra
+    FROM sales GROUP BY CardCode
+  ),
+  purchase_gaps AS (
+    SELECT CardCode, Fecha,
+           LAG(Fecha) OVER (PARTITION BY CardCode ORDER BY Fecha) AS PrevFecha
+    FROM (SELECT DISTINCT CardCode, Fecha::DATE AS Fecha FROM sales)
+  ),
+  freq AS (
+    SELECT CardCode, AVG(DATEDIFF('day', PrevFecha, Fecha)) AS FrecuenciaDias
+    FROM purchase_gaps WHERE PrevFecha IS NOT NULL GROUP BY CardCode
+  ),
+  family_pct AS (
+    SELECT CardCode, ItmsgrpName,
+           ROUND(100.0 * SUM(LineTotal) / NULLIF(SUM(SUM(LineTotal)) OVER (PARTITION BY CardCode), 0)) AS Pct,
+           ROW_NUMBER() OVER (PARTITION BY CardCode ORDER BY SUM(LineTotal) DESC) AS rn
+    FROM sales GROUP BY CardCode, ItmsgrpName
+  ),
+  top_families AS (
+    SELECT CardCode,
+           STRING_AGG(ItmsgrpName || ': ' || COALESCE(TRY_CAST(Pct AS INTEGER), 0) || '%', ', ' ORDER BY Pct DESC) AS TopFamilias
+    FROM family_pct WHERE rn <= 2 GROUP BY CardCode
   )
   SELECT c.Cardname, c.Lat, c.Lng, c.Ciudad,
-         lv.TotalVenta,
-         DATEDIFF('day', lv.UltimaCompra, CURRENT_DATE) AS DiasSinComprar
+         COALESCE(vs.TotalVenta, 0)              AS TotalVenta,
+         vs.NumFacturas,
+         ROUND(vs.PromedioCompra)                AS PromedioCompra,
+         tf.TopFamilias,
+         DATEDIFF('day', vs.UltimaCompra, CURRENT_DATE) AS DiasSinComprar,
+         ROUND(f.FrecuenciaDias)                 AS FrecuenciaDias,
+         CASE WHEN vs.UltimaCompra IS NOT NULL AND f.FrecuenciaDias IS NOT NULL
+              THEN ROUND(f.FrecuenciaDias) - DATEDIFF('day', vs.UltimaCompra, CURRENT_DATE)
+              ELSE NULL END                       AS DiasHastaCompra,
+         c.Balance,
+         c.CreditLine
   FROM clients c
-  JOIN last_vendor lv ON c.CardCode = lv.CardCode
-  WHERE lv.UltimoVendedor = 'Ronny Marcillo'
-    AND DATEDIFF('day', lv.UltimaCompra, CURRENT_DATE) > 30
-  ORDER BY DiasSinComprar DESC
+  LEFT JOIN vendor_sales vs  ON c.CardCode = vs.CardCode
+  LEFT JOIN freq f           ON c.CardCode = f.CardCode
+  LEFT JOIN top_families tf  ON c.CardCode = tf.CardCode
+  WHERE c.SlpCode = (SELECT DISTINCT Slpcode FROM sales WHERE NombreVendedor = 'Ronny Marcillo' LIMIT 1)
+  ORDER BY DiasSinComprar DESC NULLS LAST
   LIMIT 200
 - chartConfig para map: { "latKey": "Lat", "lngKey": "Lng", "labelKey": "Cardname", "valueKey": "TotalVenta" }
 ` : ''}
