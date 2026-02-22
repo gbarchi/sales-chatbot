@@ -43,8 +43,18 @@ function MapChart({ validPoints, latKey, lngKey, labelKey, valueKey, getMarkerCo
   const [proximosDias, setProximosDias] = React.useState(null); // null = desactivado
 
   const getClientType = (point) => {
-    if (!point.TotalVenta || point.TotalVenta === 0 || point.DiasSinComprar == null) return 'prospecto';
-    if (Number(point.DiasSinComprar) > 180) return 'perdido';
+    const diasSinComprar = point.DiasSinComprar ?? point.dias_sin_compra ?? point.DiasInactivo;
+    const totalVenta    = point.TotalVenta    ?? point.total_ventas;
+    const numFacturas   = point.NumFacturas   ?? point.num_facturas  ?? point.Facturas;
+    const promedioCompra = point.PromedioCompra ?? point.promedio_compra;
+
+    // A client has purchase history if ANY metric shows activity
+    const hasHistory = (totalVenta     && Number(totalVenta)     > 0)
+                    || (numFacturas    && Number(numFacturas)    > 0)
+                    || (promedioCompra && Number(promedioCompra) > 0);
+
+    if (!hasHistory) return 'prospecto';
+    if (diasSinComprar != null && Number(diasSinComprar) > 180) return 'perdido';
     return 'activo';
   };
 
@@ -69,13 +79,16 @@ function MapChart({ validPoints, latKey, lngKey, labelKey, valueKey, getMarkerCo
   const humanize = (key) => {
     const labels = {
       TotalVenta: 'Total venta', LineTotal: 'Total venta',
-      DiasSinComprar: 'Días sin comprar', DiasInactivo: 'Días inactivo',
+      DiasSinComprar: 'Días sin comprar', dias_sin_compra: 'Días sin comprar', DiasInactivo: 'Días inactivo',
       UltimaCompra: 'Última compra', FechaUltimaCompra: 'Última compra',
       NombreVendedor: 'Vendedor', NombreSupervisor: 'Supervisor',
-      TotalFacturas: 'Facturas', NumFacturas: 'Facturas',
-      PromedioMensual: 'Promedio mensual', Promedio: 'Promedio', PromedioCompra: 'Promedio por factura',
+      TotalFacturas: 'Facturas', NumFacturas: 'Facturas', num_facturas: 'Facturas', Facturas: 'Facturas',
+      PromedioMensual: 'Promedio mensual', promedio_mensual: 'Promedio mensual',
+      Promedio: 'Promedio', PromedioCompra: 'Promedio por factura', promedio_compra: 'Promedio por factura',
       TopFamilias: 'Familias',
       Cantidad: 'Cantidad', Margen: 'Margen',
+      factor_riesgo: 'Factor de riesgo', FrecuenciaDias: 'Frecuencia de compra',
+      DiasHastaCompra: 'Próxima compra en',
     };
     return labels[key] || key.replace(/([A-Z])/g, ' $1').trim();
   };
