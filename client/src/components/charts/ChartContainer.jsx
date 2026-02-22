@@ -36,7 +36,7 @@ function FitBounds({ points }) {
 }
 
 // ── MapChart ─────────────────────────────────────────────────────────────────
-function MapChart({ validPoints, latKey, lngKey, labelKey, valueKey, getMarkerColor, planRoute, haversine, chartConfig }) {
+function MapChart({ validPoints, totalCount, latKey, lngKey, labelKey, valueKey, getMarkerColor, planRoute, haversine, chartConfig }) {
   const [routeMode, setRouteMode] = React.useState(false);
   const [routeResult, setRouteResult] = React.useState(null);
   const [maxDias, setMaxDias] = React.useState(365);
@@ -145,6 +145,11 @@ function MapChart({ validPoints, latKey, lngKey, labelKey, valueKey, getMarkerCo
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 13, color: '#64748b' }}>
           {displayPoints.length}{displayPoints.length !== points.length ? `/${points.length}` : ''} cliente{displayPoints.length !== 1 ? 's' : ''}
+          {totalCount && totalCount > points.length ? (
+            <span style={{ marginLeft: 6, color: '#f59e0b', fontSize: 11 }} title={`${totalCount - points.length} cliente(s) sin coordenadas GPS no se muestran en el mapa`}>
+              ⚠️ {totalCount - points.length} sin coords
+            </span>
+          ) : null}
         </span>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 11, flexWrap: 'wrap' }}>
           {valueKey && <>
@@ -1451,6 +1456,7 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
 
         return <MapChart
           validPoints={validPoints}
+          totalCount={data.length}
           latKey={latKey}
           lngKey={lngKey}
           labelKey={labelKey}
