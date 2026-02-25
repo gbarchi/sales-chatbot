@@ -103,8 +103,11 @@ class DataService {
   }
 
   async _loadClientsTable() {
+    // Look for clients.csv in the same directory as the sales CSV
+    // This works regardless of whether the repo is nested or at root level
+    const salesCsvPath = process.env.CSV_PATH || path.resolve(__dirname, '../../../MAVIJU_DASHBOARD_VENTAS_ANL_VTA_2 0.csv');
     const clientsCsvPath = process.env.CLIENTS_CSV_PATH ||
-      path.resolve(__dirname, '../../../clients.csv');
+      path.join(path.dirname(salesCsvPath), 'clients.csv');
 
     if (!fs.existsSync(clientsCsvPath)) {
       console.log('[dataService] No clients.csv found — map queries will be unavailable');
