@@ -24,6 +24,7 @@ function applyExplicitChartRequest(query, llmResponse) {
     { type: 'bar',  phrases: ['en barras', 'en un gráfico de barras', 'gráfico de barras', 'como barras', 'en forma de barras'] },
     { type: 'line', phrases: ['en líneas', 'en un gráfico de líneas', 'gráfico de líneas', 'como líneas'] },
     { type: 'pie',  phrases: ['en pie', 'pie chart', 'gráfico circular', 'gráfico de pastel', 'como pastel'] },
+    { type: 'area', phrases: ['en un gráfico de área', 'gráfico de área', 'en área', 'como área', 'en areas', 'en áreas', 'en un gráfico de areas', 'gráfico de areas'] },
   ];
 
   for (const { type, phrases } of checks) {

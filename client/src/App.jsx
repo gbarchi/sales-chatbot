@@ -166,6 +166,22 @@ function App() {
     } else if (response.type === 'multi') {
       // Handle multiple query results
       botMessage.content = `Encontré ${response.results.length} resultados para tu consulta.`;
+      // Build explanation from result titles/explanations so conversation history retains context
+      // about which families/dimensions were queried (e.g. "ambas familias" follow-ups)
+      let multiExplanation = response.results
+        .filter(r => !r.error)
+        .map(r => r.chartConfig?.title || r.explanation || '')
+        .filter(s => s)
+        .join(' | ');
+      // For profile queries: append key metrics so LLM can reference real numbers in follow-ups
+      const profileResult = response.results.find(r => r.chartType === 'profile');
+      if (profileResult && profileResult.data && profileResult.data[0]) {
+        const row = profileResult.data[0];
+        const fmt = (n) => n != null ? `$${Math.round(n).toLocaleString()}` : 'N/D';
+        const fmtPct = (n) => n != null ? `${n}%` : 'N/D';
+        multiExplanation += ` | Datos reales del cliente: VentaTotal=${fmt(row.VentaTotal)}, VentaReciente6M=${fmt(row.VentaReciente6M)}, CrecimientoSemestral=${fmtPct(row.CrecimientoSemestral)}, DiasSinCompra=${row.DiasSinCompra}, FrecuenciaPromDias=${row.FrecuenciaPromDias}d, TicketPromedio=${fmt(row.TicketPromedio)}, TicketReciente=${fmt(row.TicketReciente)}${row.MargenReciente6M != null ? `, MargenReciente6M=${fmtPct(row.MargenReciente6M)}` : ''}${row.MargenUltimos12M != null ? `, MargenUltimos12M=${fmtPct(row.MargenUltimos12M)}` : ''}`;
+      }
+      botMessage.explanation = multiExplanation;
       botMessage.results = response.results;
       botMessage.isMulti = true;
     } else {

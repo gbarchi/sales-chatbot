@@ -242,6 +242,8 @@ class DataService {
       subfamilias,
       subcategorias,
       ciudades,
+      categoria_sn,
+      subcategoria_sn,
       dateRange,
       rowCount
     ] = await Promise.all([
@@ -253,6 +255,8 @@ class DataService {
       this.executeQuery('SELECT DISTINCT SubFamiliaName FROM sales WHERE SubFamiliaName IS NOT NULL ORDER BY SubFamiliaName'),
       this.executeQuery('SELECT DISTINCT SubCategoria FROM sales WHERE SubCategoria IS NOT NULL ORDER BY SubCategoria'),
       this.executeQuery('SELECT DISTINCT CiudadPrincipal FROM sales WHERE CiudadPrincipal IS NOT NULL ORDER BY CiudadPrincipal'),
+      this.executeQuery('SELECT DISTINCT Categoria_SN FROM sales WHERE Categoria_SN IS NOT NULL ORDER BY Categoria_SN'),
+      this.executeQuery('SELECT DISTINCT SubCategoria_SN FROM sales WHERE SubCategoria_SN IS NOT NULL ORDER BY SubCategoria_SN'),
       this.executeQuery('SELECT MIN(Fecha) as minDate, MAX(Fecha) as maxDate FROM sales'),
       this.executeQuery('SELECT CAST(COUNT(*) AS INTEGER) as count FROM sales')
     ]);
@@ -275,6 +279,8 @@ class DataService {
       provincias: provincias.map(r => r.ProvinciaPrincipal),
       subcategorias: subcategorias.map(r => r.SubCategoria),
       ciudades: ciudades.map(r => r.CiudadPrincipal),
+      categoria_sn: categoria_sn.map(r => r.Categoria_SN),
+      subcategoria_sn: subcategoria_sn.map(r => r.SubCategoria_SN),
       dateRange: {
         min: dateRange[0].minDate,
         max: dateRange[0].maxDate

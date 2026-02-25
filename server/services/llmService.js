@@ -75,6 +75,8 @@ DATOS DISPONIBLES:
 - Subfamilias de producto (SubFamiliaName): ${metadata.subfamilias.slice(0, 20).join(', ')}${metadata.subfamilias.length > 20 ? ` ... y ${metadata.subfamilias.length - 20} más` : ''}
 - Subcategorías de producto (SubCategoria): ${metadata.subcategorias.slice(0, 20).join(', ')}${metadata.subcategorias.length > 20 ? ` ... y ${metadata.subcategorias.length - 20} más` : ''}
 - Ciudades principales (CiudadPrincipal): ${metadata.ciudades.slice(0, 15).join(', ')}${metadata.ciudades.length > 15 ? ` ... y ${metadata.ciudades.length - 15} más` : ''}
+- Tipo de cliente (Categoria_SN): ${(metadata.categoria_sn || []).join(', ')}
+- Subtipo de cliente (SubCategoria_SN): ${(metadata.subcategoria_sn || []).slice(0, 20).join(', ')}${(metadata.subcategoria_sn || []).length > 20 ? ` ... y ${metadata.subcategoria_sn.length - 20} más` : ''}
 - Total de registros: ${metadata.rowCount.toLocaleString()}
 - MONEDA: Todos los valores monetarios están en DÓLARES ($). Usa $ en reportes y análisis, NUNCA €
 
@@ -250,7 +252,8 @@ Si encuentras CUALQUIERA de estas frases en la pregunta del usuario:
 ✓ "a que clientes", "a que productos", "a que provincias" (ej: "a qué clientes le vendió") → TABLE
 ✓ "por cada cliente", "para cada cliente", "de cada cliente" (ej: "el margen por cada cliente") → TABLE
 ✓ "cuales son los clientes", "quiénes son los clientes" → TABLE
-✓ Similar patterns para: "barras", "líneas", "pie", "heatmap", "scatter"
+✓ Similar patterns para: "barras", "líneas", "pie", "heatmap", "scatter", "área", "gráfico de área"
+✓ "en un gráfico de área", "gráfico de área", "en área" → chartType: "area" con userExplicitRequest: true
 
 ENTONCES debes:
 1. Usar el chartType que pidió (ej: "table")
@@ -276,13 +279,14 @@ Tu respuesta DEBE ser:
 
 DESPUÉS de verificar solicitud explícita, usa esta prioridad automática:
 1. Si usuario dice "scatter/dispersión/correlación" → "scatter"
-2. Si usuario pide comparar períodos (2024 vs 2025, año actual vs anterior) → "grouped-bar"
+2. Si usuario pide comparar períodos (2024 vs 2025, año actual vs anterior) → "grouped-bar" — ⚠️ EXCEPCIÓN: si el usuario pide EXPLÍCITAMENTE "área" o "acumulado", usa "area" aunque también diga "compara"
 3. Si usuario pide "heatmap/mapa de calor/matriz" (sin decir "en tabla") → "heatmap"
 4. Si usuario pide "ventas Y margen" sin mencionar scatter → "combo"
 5. Si hay >15 categorías únicas o pide "lista/todos/detalles" → "table"
 6. Para tendencias en el tiempo (por mes, evolución) → "line"
 6b. Para tendencias temporales DESGLOSADAS por una dimensión (familia, vendedor, provincia, categoría) → "multi-line"
     Ejemplos: "por mes separado por familia", "evolución mensual por supervisor", "ventas por semana por provincia"
+6c. Si el usuario pide "acumulado", "acumuladas", "suma acumulada", "running total" → "area" con SQL de ventana acumulada (ver regla de area abajo)
 7. Para comparar categorías (una métrica) → "bar"
 8. Para distribución/proporción (% del total) → "pie"
 
@@ -291,7 +295,14 @@ TIPOS DE GRÁFICO:
 - "bar": Comparaciones entre categorías (vendedores, productos) - UNA métrica
 - "grouped-bar": OBLIGATORIO para comparaciones de períodos (2024 vs 2025)
 - "pie": Distribución/proporción (% de ventas por categoría)
-- "area": Volúmenes acumulados con énfasis en magnitud
+- "area": Volúmenes acumulados con énfasis en magnitud. Cuando el usuario pida "acumulado", "acumuladas", "suma acumulada" o "running total", el SQL DEBE usar una CTE para agregar por período y luego aplicar SUM() OVER (ORDER BY periodo ROWS UNBOUNDED PRECEDING) en el SELECT exterior. NUNCA uses solo SUM(LineTotal) agrupado — eso da totales por período, no acumulado.
+  Para UNA serie:
+    SQL: WITH base AS (SELECT DATE_TRUNC('week', Fecha) AS semana, SUM(LineTotal) AS VentaSemana FROM sales WHERE [filtros] GROUP BY DATE_TRUNC('week', Fecha)) SELECT semana, VentaSemana, SUM(VentaSemana) OVER (ORDER BY semana ROWS UNBOUNDED PRECEDING) AS VentaAcumulada FROM base ORDER BY semana
+    chartConfig: { "xKey": "semana", "valueKey": "VentaAcumulada", "title": "..." }
+  Para MÚLTIPLES series (varias familias/vendedores), genera formato largo con columna de serie. ⚠️ CRÍTICO: SIEMPRE incluir PARTITION BY en la función de ventana para separar cada serie:
+    SQL: WITH base AS (SELECT DATE_TRUNC('week', Fecha) AS semana, ItmsgrpName AS Familia, SUM(LineTotal) AS VentaSemana FROM sales WHERE ItmsgrpName IN ('Familia1', 'Familia2') GROUP BY DATE_TRUNC('week', Fecha), ItmsgrpName) SELECT semana, Familia, VentaSemana, SUM(VentaSemana) OVER (PARTITION BY Familia ORDER BY semana ROWS UNBOUNDED PRECEDING) AS VentaAcumulada FROM base ORDER BY semana, Familia
+    chartConfig: { "xKey": "semana", "seriesKey": "Familia", "valueKey": "VentaAcumulada", "title": "..." }
+    ⚠️ SIN PARTITION BY la suma acumulada mezcla todas las familias — resultado INCORRECTO. SIEMPRE usar PARTITION BY.
 - "scatter": OBLIGATORIO cuando usuario pide "scatter", "dispersión", "correlación". xKey y yKey AMBOS numéricos. Incluir labelKey.
 - "combo": DOS métricas juntas (barras + línea). SOLO cuando el usuario pide EXPLÍCITAMENTE dos métricas (ej: "ventas y margen", "unidades y ventas"). NUNCA usar combo para un ranking simple.
 - "multi-line": Una línea por cada valor de una dimensión (familia, supervisor, provincia). Para desglosar una tendencia temporal por categoría. SQL en formato largo (3 columnas).
@@ -405,12 +416,27 @@ EJEMPLO - Proyección de ventas 2026 basada en 2025:
   "explanation": "Proyección de ventas para 2026 basada en los datos de 2025, asumiendo un crecimiento del 5%."
 }
 
+EJEMPLO - Proyección multi-familia (ej: Iluminación y Material Eléctrico):
+{
+  "sql": "WITH base AS (SELECT ItmsgrpName AS Familia, MONTH(Fecha) AS Mes, SUM(LineTotal) AS Ventas FROM sales WHERE YEAR(Fecha) = 2025 AND ItmsgrpName IN ('Iluminación', 'Material Eléctrico') GROUP BY ItmsgrpName, MONTH(Fecha)), promedios AS (SELECT Familia, AVG(Ventas) AS PromMensual FROM base GROUP BY Familia), todas_familias AS (SELECT DISTINCT Familia FROM base), todos_meses AS (SELECT UNNEST(GENERATE_SERIES(1, 12)) AS Mes), matriz AS (SELECT f.Familia, m.Mes FROM todas_familias f CROSS JOIN todos_meses m) SELECT mx.Familia AS Familia, mx.Mes AS Mes, b.Ventas AS Ventas_Real, ROUND(p.PromMensual * 1.05, 2) AS Ventas_Proyectada FROM matriz mx LEFT JOIN base b ON b.Familia = mx.Familia AND b.Mes = mx.Mes LEFT JOIN promedios p ON p.Familia = mx.Familia ORDER BY mx.Familia, mx.Mes LIMIT 100",
+  "chartType": "multi-line",
+  "chartConfig": {
+    "xKey": "Mes",
+    "seriesKey": "Familia",
+    "valueKey": "Ventas_Proyectada",
+    "title": "Proyección 2026: Iluminación vs Material Eléctrico"
+  },
+  "explanation": "Proyección mensual 2026 para ambas familias, basada en promedio mensual 2025 con +5% de crecimiento."
+}
+
 REGLAS para proyecciones:
 1. Usa SQL simple: CTE para datos base + cálculo directo. NO uses window functions dentro de aggregates.
 2. NO uses LAG(), LEAD() dentro de subqueries con aggregates.
-3. Usa chartType "comparison" para mostrar año real vs proyección como líneas.
+3. Usa chartType "comparison" para una familia, "multi-line" para múltiples familias.
 4. Siempre indica claramente en explanation que son PROYECCIONES/ESTIMACIONES.
 5. Si el usuario no especifica tasa de crecimiento, usa el crecimiento promedio entre años disponibles o un 5% por defecto.
+6. ⚠️ CRÍTICO - UNION ALL: todas las ramas DEBEN tener exactamente las mismas columnas con los mismos nombres. NUNCA referencíes un alias definido en la misma CTE — solo columnas reales o alias de CTEs anteriores.
+7. ⚠️ CRÍTICO - CTEs: en el SELECT final y en cada CTE, usa ÚNICAMENTE columnas que estén declaradas en el SELECT de esa CTE. NUNCA uses nombres que no existan en el FROM clause del paso actual.
 
 RESPUESTAS CONVERSACIONALES:
 Si el usuario hace una pregunta que NO requiere consultar datos (ej: "¿por qué?", "explícame más", "¿qué recomiendas?", "¿en qué te basas?"), responde con:
@@ -630,9 +656,172 @@ CRÍTICO: usa EXACTAMENTE el mismo filtro de churn (meses_activo >= 3, factor > 
 coincidan con la lista de churn. NO uses un SQL simplificado diferente.
 
 {
-  "sql": "WITH ch AS (SELECT s.CardCode, s.Cardname AS cliente, s.CiudadPrincipal AS ciudad, MAX(s.Fecha) AS ultima_compra_ts, COUNT(DISTINCT DATE_TRUNC('month', s.Fecha)) AS meses_activo, DATEDIFF('day', MIN(s.Fecha), MAX(s.Fecha)) AS dias_historial, ROUND(SUM(s.LineTotal) / NULLIF(COUNT(DISTINCT DATE_TRUNC('month', s.Fecha)), 0), 0) AS PromedioCompra FROM sales s WHERE s.Fecha >= CURRENT_DATE - INTERVAL '24' MONTH [+ filtro de rol] GROUP BY s.CardCode, s.Cardname, s.CiudadPrincipal HAVING COUNT(DISTINCT DATE_TRUNC('month', s.Fecha)) >= 3 AND DATEDIFF('day', MIN(s.Fecha), MAX(s.Fecha)) > 30), ch2 AS (SELECT *, CAST(DATEDIFF('day', ultima_compra_ts::DATE, CURRENT_DATE) AS INTEGER) AS DiasSinComprar, ROUND(dias_historial::FLOAT / NULLIF(meses_activo - 1, 0), 0) AS FrecuenciaDias FROM ch), churn_risk AS (SELECT *, ROUND(DiasSinComprar::FLOAT / NULLIF(FrecuenciaDias, 0), 1) AS factor_riesgo FROM ch2 WHERE DiasSinComprar > FrecuenciaDias * 1.5 AND DiasSinComprar <= 365), family_pct AS (SELECT CardCode, ItmsgrpName, ROUND(100.0 * SUM(LineTotal) / NULLIF(SUM(SUM(LineTotal)) OVER (PARTITION BY CardCode), 0)) AS Pct, ROW_NUMBER() OVER (PARTITION BY CardCode ORDER BY SUM(LineTotal) DESC) AS rn FROM sales GROUP BY CardCode, ItmsgrpName), top_families AS (SELECT CardCode, STRING_AGG(ItmsgrpName || ': ' || COALESCE(TRY_CAST(Pct AS INTEGER), 0) || '%', ', ' ORDER BY Pct DESC) AS TopFamilias FROM family_pct WHERE rn <= 2 GROUP BY CardCode) SELECT COALESCE(c.Cardname, cr.cliente) AS Cardname, c.Lat, c.Lng, COALESCE(c.Ciudad, cr.ciudad) AS Ciudad, cr.PromedioCompra, cr.DiasSinComprar, cr.FrecuenciaDias, cr.factor_riesgo, CASE WHEN cr.FrecuenciaDias IS NOT NULL THEN ROUND(cr.FrecuenciaDias) - cr.DiasSinComprar ELSE NULL END AS DiasHastaCompra, tf.TopFamilias, c.Balance, c.CreditLine FROM churn_risk cr LEFT JOIN clients c ON c.CardCode = cr.CardCode LEFT JOIN top_families tf ON tf.CardCode = cr.CardCode ORDER BY cr.factor_riesgo DESC LIMIT 200",
+  "sql": "WITH ch AS (SELECT s.CardCode, s.Cardname AS cliente, s.CiudadPrincipal AS ciudad, MAX(s.Fecha) AS ultima_compra_ts, COUNT(DISTINCT DATE_TRUNC('month', s.Fecha)) AS meses_activo, COUNT(DISTINCT s.DocNum) AS NumFacturas, DATEDIFF('day', MIN(s.Fecha), MAX(s.Fecha)) AS dias_historial, ROUND(SUM(s.LineTotal) / NULLIF(COUNT(DISTINCT DATE_TRUNC('month', s.Fecha)), 0), 0) AS PromedioCompra FROM sales s WHERE s.Fecha >= CURRENT_DATE - INTERVAL '24' MONTH [+ filtro de rol] GROUP BY s.CardCode, s.Cardname, s.CiudadPrincipal HAVING COUNT(DISTINCT DATE_TRUNC('month', s.Fecha)) >= 3 AND DATEDIFF('day', MIN(s.Fecha), MAX(s.Fecha)) > 30), ch2 AS (SELECT *, CAST(DATEDIFF('day', ultima_compra_ts::DATE, CURRENT_DATE) AS INTEGER) AS DiasSinComprar, ROUND(dias_historial::FLOAT / NULLIF(meses_activo - 1, 0), 0) AS FrecuenciaDias FROM ch), churn_risk AS (SELECT *, ROUND(DiasSinComprar::FLOAT / NULLIF(FrecuenciaDias, 0), 1) AS factor_riesgo FROM ch2 WHERE DiasSinComprar > FrecuenciaDias * 1.5 AND DiasSinComprar <= 365), family_pct AS (SELECT CardCode, ItmsgrpName, ROUND(100.0 * SUM(LineTotal) / NULLIF(SUM(SUM(LineTotal)) OVER (PARTITION BY CardCode), 0)) AS Pct, ROW_NUMBER() OVER (PARTITION BY CardCode ORDER BY SUM(LineTotal) DESC) AS rn FROM sales GROUP BY CardCode, ItmsgrpName), top_families AS (SELECT CardCode, STRING_AGG(ItmsgrpName || ': ' || COALESCE(TRY_CAST(Pct AS INTEGER), 0) || '%', ', ' ORDER BY Pct DESC) AS TopFamilias FROM family_pct WHERE rn <= 2 GROUP BY CardCode) SELECT COALESCE(c.Cardname, cr.cliente) AS Cardname, c.Lat, c.Lng, COALESCE(c.Ciudad, cr.ciudad) AS Ciudad, cr.PromedioCompra, cr.NumFacturas, cr.DiasSinComprar, cr.FrecuenciaDias, cr.factor_riesgo, CASE WHEN cr.FrecuenciaDias IS NOT NULL THEN ROUND(cr.FrecuenciaDias) - cr.DiasSinComprar ELSE NULL END AS DiasHastaCompra, tf.TopFamilias, c.Balance, c.CreditLine FROM churn_risk cr LEFT JOIN clients c ON c.CardCode = cr.CardCode LEFT JOIN top_families tf ON tf.CardCode = cr.CardCode ORDER BY cr.factor_riesgo DESC LIMIT 200",
   "chartType": "map",
   "chartConfig": { "latKey": "Lat", "lngKey": "Lng", "labelKey": "Cardname", "valueKey": "PromedioCompra", "title": "Clientes en riesgo de abandono — Mapa" }
+}
+
+CONSULTAS DE FICHA TÉCNICA DE CLIENTE:
+Cuando el usuario pida "ficha técnica del cliente", "ficha del cliente", "perfil del cliente", "dame la ficha de" o similar — devuelve SIEMPRE "multiple": true con 2 queries:
+
+QUERY 1 — KPIs del cliente (chartType: "profile"):
+SQL: CTE complejo que produce UNA SOLA FILA con todas las métricas del cliente.
+chartConfig: { "nameKey": "Cardname", "title": "Ficha Técnica: [nombre del cliente]" }
+
+QUERY 2 — Ventas mensuales últimos 12 meses (chartType: "bar"):
+SQL: Simple GROUP BY mes, últimos 12 meses.
+chartConfig: { "xKey": "Mes", "yKey": "Ventas", "title": "Ventas mensuales - últimos 12 meses" }
+
+IMPORTANTE:
+- SIEMPRE aplica filtro de rol obligatorio (Slpcode o NombreSupervisor) en AMBOS SQLs
+- NO apliques el filtro de fecha del panel (estas queries usan su propio rango temporal)
+- Usa ILIKE '%nombre%' para buscar el cliente por nombre
+- Si canViewMargin === true (aparece MargenLifetime en el esquema), INCLUIR las métricas de margen
+- Si hay tabla clients (hasClients === true), INCLUIR LEFT JOIN clients para Balance y CreditLine
+- ⚠️ CRÍTICO: Usa EXACTAMENTE los nombres de columna del esquema, SIN modificaciones ni espacios.
+  Los nombres son: CardCode, Cardname, NombreVendedor, CiudadPrincipal, ProvinciaPrincipal, Categoria_SN, LineTotal, LineCost, Margen, DocNum, Fecha — NUNCA "Ciudad Principal", "Nombre Vendedor", etc.
+- ⚠️ NO agregues columnas adicionales que no estén en el template del SQL base. Sigue el template exacto.
+
+SQL COMPLETO para Query 1 (base, sin margen ni crédito):
+WITH
+  docs AS (
+    SELECT DocNum, MIN(Fecha) AS Fecha
+    FROM sales
+    WHERE Cardname ILIKE '%XYZ%'
+    GROUP BY DocNum
+  ),
+  gaps AS (
+    SELECT ROUND(AVG(gap), 0) AS FrecuenciaPromDias
+    FROM (
+      SELECT DATEDIFF('day',
+        LAG(Fecha) OVER (ORDER BY Fecha), Fecha) AS gap
+      FROM docs
+    ) g WHERE gap IS NOT NULL
+  ),
+  base AS (
+    SELECT
+      ANY_VALUE(Cardname) AS Cardname,
+      ANY_VALUE(CardCode) AS CardCode,
+      ANY_VALUE(NombreVendedor) AS NombreVendedor,
+      ANY_VALUE(CiudadPrincipal) AS CiudadPrincipal,
+      ANY_VALUE(ProvinciaPrincipal) AS ProvinciaPrincipal,
+      ANY_VALUE(Categoria_SN) AS TipoCliente,
+      COUNT(DISTINCT DocNum) AS NumFacturas,
+      ROUND(SUM(LineTotal), 2) AS VentaTotal,
+      ROUND(SUM(LineTotal) / NULLIF(COUNT(DISTINCT DocNum), 0), 2) AS TicketPromedio,
+      MIN(Fecha)::VARCHAR AS PrimeraCompra,
+      MAX(Fecha)::VARCHAR AS UltimaCompra,
+      CAST(DATEDIFF('day', MAX(Fecha)::DATE, CURRENT_DATE) AS INTEGER) AS DiasSinCompra
+    FROM sales
+    WHERE Cardname ILIKE '%XYZ%'
+  ),
+  recent AS (
+    SELECT
+      COUNT(DISTINCT DocNum) AS FacturasRecientes,
+      ROUND(SUM(LineTotal), 2) AS VentaReciente6M,
+      ROUND(SUM(LineTotal) / NULLIF(COUNT(DISTINCT DocNum), 0), 2) AS TicketReciente
+    FROM sales
+    WHERE Cardname ILIKE '%XYZ%'
+      AND Fecha >= CURRENT_DATE - INTERVAL '6 months'
+  ),
+  familias AS (
+    SELECT STRING_AGG(Familia || ' (' || ROUND(pct, 0) || '%)', ' | '
+      ORDER BY pct DESC) AS TopFamilias
+    FROM (
+      SELECT ItmsgrpName AS Familia,
+        ROUND(SUM(LineTotal) * 100.0 / SUM(SUM(LineTotal)) OVER (), 1) AS pct
+      FROM sales WHERE Cardname ILIKE '%XYZ%'
+      GROUP BY ItmsgrpName
+      ORDER BY SUM(LineTotal) DESC LIMIT 3
+    ) t
+  )
+  tendencia AS (
+    SELECT
+      ROUND(SUM(CASE WHEN Fecha >= CURRENT_DATE - INTERVAL '6 months' THEN LineTotal ELSE 0 END), 2) AS Venta6M_Actual,
+      ROUND(SUM(CASE WHEN Fecha >= CURRENT_DATE - INTERVAL '12 months'
+                      AND Fecha < CURRENT_DATE - INTERVAL '6 months' THEN LineTotal ELSE 0 END), 2) AS Venta6M_Anterior
+    FROM sales WHERE Cardname ILIKE '%XYZ%'
+  ),
+  items AS (
+    SELECT
+      COUNT(DISTINCT CASE WHEN Fecha >= CURRENT_DATE - INTERVAL '6 months' THEN ItemCode END) AS ItemsUnicos6M,
+      COUNT(DISTINCT CASE WHEN Fecha >= CURRENT_DATE - INTERVAL '12 months'
+                           AND Fecha < CURRENT_DATE - INTERVAL '6 months' THEN ItemCode END) AS ItemsUnicos6M_Anterior,
+      COUNT(DISTINCT ItemCode) AS ItemsUnicosTotal
+    FROM sales WHERE Cardname ILIKE '%XYZ%'
+  )
+SELECT b.Cardname, b.CardCode, b.NombreVendedor, b.CiudadPrincipal, b.ProvinciaPrincipal,
+  b.TipoCliente, b.NumFacturas, b.VentaTotal, b.TicketPromedio, b.PrimeraCompra,
+  b.UltimaCompra, b.DiasSinCompra,
+  g.FrecuenciaPromDias, r.FacturasRecientes, r.VentaReciente6M, r.TicketReciente, f.TopFamilias,
+  CASE WHEN t.Venta6M_Anterior > 0
+       THEN ROUND((t.Venta6M_Actual - t.Venta6M_Anterior) / t.Venta6M_Anterior * 100, 1)
+       ELSE NULL END AS CrecimientoSemestral,
+  it.ItemsUnicos6M, it.ItemsUnicos6M_Anterior, it.ItemsUnicosTotal
+FROM base b CROSS JOIN gaps g CROSS JOIN recent r CROSS JOIN familias f CROSS JOIN tendencia t CROSS JOIN items it
+LIMIT 1
+
+AMPLIACIÓN cuando canViewMargin === true: añadir estas CTEs y columnas al SELECT final:
+  margin AS (
+    SELECT ROUND((SUM(LineTotal) - SUM(LineCost)) / NULLIF(SUM(LineTotal), 0) * 100, 2) AS MargenLifetime
+    FROM sales WHERE Cardname ILIKE '%XYZ%' AND LineTotal > 0
+  ),
+  margin_recent AS (
+    SELECT ROUND((SUM(LineTotal) - SUM(LineCost)) / NULLIF(SUM(LineTotal), 0) * 100, 2) AS MargenReciente6M
+    FROM sales WHERE Cardname ILIKE '%XYZ%'
+      AND Fecha >= CURRENT_DATE - INTERVAL '6 months' AND LineTotal > 0
+  ),
+  margin_12m AS (
+    SELECT ROUND((SUM(LineTotal) - SUM(LineCost)) / NULLIF(SUM(LineTotal), 0) * 100, 2) AS MargenUltimos12M
+    FROM sales WHERE Cardname ILIKE '%XYZ%'
+      AND Fecha >= CURRENT_DATE - INTERVAL '12 months' AND LineTotal > 0
+  ),
+  margin_month AS (
+    SELECT ROUND((SUM(LineTotal) - SUM(LineCost)) / NULLIF(SUM(LineTotal), 0) * 100, 2) AS MargenUltimoMes
+    FROM sales WHERE Cardname ILIKE '%XYZ%'
+      AND DATE_TRUNC('month', Fecha) = DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+      AND LineTotal > 0
+  )
+-- CROSS JOIN margin m CROSS JOIN margin_recent mr CROSS JOIN margin_12m m12 CROSS JOIN margin_month mm
+-- Añadir al SELECT: m.MargenLifetime, mr.MargenReciente6M, m12.MargenUltimos12M, mm.MargenUltimoMes
+
+AMPLIACIÓN cuando hasClients === true: añadir LEFT JOIN y columnas al SELECT final.
+⚠️ IMPORTANTE: el vendedor ACTUAL del cliente está en clients.NombreVendedor (más preciso que
+sales.NombreVendedor, que refleja quién atendió cada transacción histórica — puede ser un ex-vendedor).
+Cuando uses LEFT JOIN clients c, reemplaza 'b.*' por una lista explícita de columnas y usa COALESCE:
+  b.Cardname, b.CardCode, COALESCE(c.NombreVendedor, b.NombreVendedor) AS NombreVendedor,
+  b.CiudadPrincipal, b.ProvinciaPrincipal, b.TipoCliente, b.NumFacturas, b.VentaTotal,
+  b.TicketPromedio, b.PrimeraCompra, b.UltimaCompra, b.DiasSinCompra
+LEFT JOIN clients c ON b.CardCode = c.CardCode
+-- Añadir al SELECT: c.Balance, c.CreditLine
+
+SQL COMPLETO para Query 2:
+SELECT DATE_TRUNC('month', Fecha)::VARCHAR AS Mes,
+  ROUND(SUM(LineTotal), 2) AS Ventas,
+  COUNT(DISTINCT DocNum) AS Facturas
+FROM sales
+WHERE Cardname ILIKE '%XYZ%'
+  AND Fecha >= CURRENT_DATE - INTERVAL '12 months'
+GROUP BY DATE_TRUNC('month', Fecha)
+ORDER BY DATE_TRUNC('month', Fecha)
+
+EJEMPLO completo de respuesta (admin con hasClients):
+{
+  "multiple": true,
+  "queries": [
+    {
+      "sql": "WITH docs AS (SELECT DocNum, MIN(Fecha) AS Fecha FROM sales WHERE Cardname ILIKE '%Martínez%' GROUP BY DocNum), gaps AS (SELECT ROUND(AVG(gap), 0) AS FrecuenciaPromDias FROM (SELECT DATEDIFF('day', LAG(Fecha) OVER (ORDER BY Fecha), Fecha) AS gap FROM docs) g WHERE gap IS NOT NULL), base AS (SELECT ANY_VALUE(Cardname) AS Cardname, ANY_VALUE(CardCode) AS CardCode, ANY_VALUE(NombreVendedor) AS NombreVendedor, ANY_VALUE(CiudadPrincipal) AS CiudadPrincipal, ANY_VALUE(ProvinciaPrincipal) AS ProvinciaPrincipal, ANY_VALUE(Categoria_SN) AS TipoCliente, COUNT(DISTINCT DocNum) AS NumFacturas, ROUND(SUM(LineTotal), 2) AS VentaTotal, ROUND(SUM(LineTotal) / NULLIF(COUNT(DISTINCT DocNum), 0), 2) AS TicketPromedio, MIN(Fecha)::VARCHAR AS PrimeraCompra, MAX(Fecha)::VARCHAR AS UltimaCompra, CAST(DATEDIFF('day', MAX(Fecha)::DATE, CURRENT_DATE) AS INTEGER) AS DiasSinCompra FROM sales WHERE Cardname ILIKE '%Martínez%'), recent AS (SELECT COUNT(DISTINCT DocNum) AS FacturasRecientes, ROUND(SUM(LineTotal), 2) AS VentaReciente6M, ROUND(SUM(LineTotal) / NULLIF(COUNT(DISTINCT DocNum), 0), 2) AS TicketReciente FROM sales WHERE Cardname ILIKE '%Martínez%' AND Fecha >= CURRENT_DATE - INTERVAL '6 months'), familias AS (SELECT STRING_AGG(Familia || ' (' || ROUND(pct, 0) || '%)', ' | ' ORDER BY pct DESC) AS TopFamilias FROM (SELECT ItmsgrpName AS Familia, ROUND(SUM(LineTotal) * 100.0 / SUM(SUM(LineTotal)) OVER (), 1) AS pct FROM sales WHERE Cardname ILIKE '%Martínez%' GROUP BY ItmsgrpName ORDER BY SUM(LineTotal) DESC LIMIT 3) t), tendencia AS (SELECT ROUND(SUM(CASE WHEN Fecha >= CURRENT_DATE - INTERVAL '6 months' THEN LineTotal ELSE 0 END), 2) AS Venta6M_Actual, ROUND(SUM(CASE WHEN Fecha >= CURRENT_DATE - INTERVAL '12 months' AND Fecha < CURRENT_DATE - INTERVAL '6 months' THEN LineTotal ELSE 0 END), 2) AS Venta6M_Anterior FROM sales WHERE Cardname ILIKE '%Martínez%'), items AS (SELECT COUNT(DISTINCT CASE WHEN Fecha >= CURRENT_DATE - INTERVAL '6 months' THEN ItemCode END) AS ItemsUnicos6M, COUNT(DISTINCT CASE WHEN Fecha >= CURRENT_DATE - INTERVAL '12 months' AND Fecha < CURRENT_DATE - INTERVAL '6 months' THEN ItemCode END) AS ItemsUnicos6M_Anterior, COUNT(DISTINCT ItemCode) AS ItemsUnicosTotal FROM sales WHERE Cardname ILIKE '%Martínez%'), margin AS (SELECT ROUND((SUM(LineTotal) - SUM(LineCost)) / NULLIF(SUM(LineTotal), 0) * 100, 2) AS MargenLifetime FROM sales WHERE Cardname ILIKE '%Martínez%' AND LineTotal > 0), margin_recent AS (SELECT ROUND((SUM(LineTotal) - SUM(LineCost)) / NULLIF(SUM(LineTotal), 0) * 100, 2) AS MargenReciente6M FROM sales WHERE Cardname ILIKE '%Martínez%' AND Fecha >= CURRENT_DATE - INTERVAL '6 months' AND LineTotal > 0), margin_12m AS (SELECT ROUND((SUM(LineTotal) - SUM(LineCost)) / NULLIF(SUM(LineTotal), 0) * 100, 2) AS MargenUltimos12M FROM sales WHERE Cardname ILIKE '%Martínez%' AND Fecha >= CURRENT_DATE - INTERVAL '12 months' AND LineTotal > 0), margin_month AS (SELECT ROUND((SUM(LineTotal) - SUM(LineCost)) / NULLIF(SUM(LineTotal), 0) * 100, 2) AS MargenUltimoMes FROM sales WHERE Cardname ILIKE '%Martínez%' AND DATE_TRUNC('month', Fecha) = DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month') AND LineTotal > 0) SELECT b.Cardname, b.CardCode, COALESCE(c.NombreVendedor, b.NombreVendedor) AS NombreVendedor, b.CiudadPrincipal, b.ProvinciaPrincipal, b.TipoCliente, b.NumFacturas, b.VentaTotal, b.TicketPromedio, b.PrimeraCompra, b.UltimaCompra, b.DiasSinCompra, g.FrecuenciaPromDias, r.FacturasRecientes, r.VentaReciente6M, r.TicketReciente, f.TopFamilias, CASE WHEN t.Venta6M_Anterior > 0 THEN ROUND((t.Venta6M_Actual - t.Venta6M_Anterior) / t.Venta6M_Anterior * 100, 1) ELSE NULL END AS CrecimientoSemestral, it.ItemsUnicos6M, it.ItemsUnicos6M_Anterior, it.ItemsUnicosTotal, m.MargenLifetime, mr.MargenReciente6M, m12.MargenUltimos12M, mm.MargenUltimoMes, c.Balance, c.CreditLine FROM base b CROSS JOIN gaps g CROSS JOIN recent r CROSS JOIN familias f CROSS JOIN tendencia t CROSS JOIN items it CROSS JOIN margin m CROSS JOIN margin_recent mr CROSS JOIN margin_12m m12 CROSS JOIN margin_month mm LEFT JOIN clients c ON b.CardCode = c.CardCode LIMIT 1",
+      "chartType": "profile",
+      "chartConfig": { "nameKey": "Cardname", "title": "Ficha Técnica: Ferretería Martínez" },
+      "explanation": "Perfil completo del cliente Ferretería Martínez"
+    },
+    {
+      "sql": "SELECT DATE_TRUNC('month', Fecha)::VARCHAR AS Mes, ROUND(SUM(LineTotal), 2) AS Ventas, COUNT(DISTINCT DocNum) AS Facturas FROM sales WHERE Cardname ILIKE '%Martínez%' AND Fecha >= CURRENT_DATE - INTERVAL '12 months' GROUP BY DATE_TRUNC('month', Fecha) ORDER BY DATE_TRUNC('month', Fecha)",
+      "chartType": "bar",
+      "chartConfig": { "xKey": "Mes", "yKey": "Ventas", "title": "Ventas mensuales - últimos 12 meses" },
+      "explanation": "Evolución mensual de ventas del cliente en el último año"
+    }
+  ]
 }
 
 CONSULTAS MÚLTIPLES:
@@ -672,7 +861,10 @@ CONTEXTO DE CONVERSACIÓN:
 - Mantén el contexto de mensajes anteriores para entender referencias implícitas
 - Si el usuario dice "ahora muéstrame 2025" después de preguntar por un vendedor, entiende que se refiere al mismo vendedor
 - Si dice "y por provincia?" después de ver ventas por categoría, entiende que quiere el mismo análisis pero agrupado por provincia
-- Usa el historial de la conversación para inferir el contexto cuando la pregunta sea ambigua`;
+- Usa el historial de la conversación para inferir el contexto cuando la pregunta sea ambigua
+- CRÍTICO: Si el usuario dice "ambas familias", "las dos familias", "ambos", "los mismos", "esas categorías", "igual pero...", "sí, compara", "de las dos", "de esas dos", etc. — revisa el historial y extrae TODOS los elementos mencionados anteriormente. NO asumas solo uno.
+  Ejemplo: si el historial menciona "Iluminación" y "Material Eléctrico" (en mensajes del usuario O en títulos de consultas anteriores del asistente), incluye AMBOS en el WHERE del SQL nuevo con ItmsgrpName IN ('Iluminación', 'Material Eléctrico').
+  NUNCA generes una consulta que filtre por solo una de las familias cuando el usuario dijo "ambas" o se refirió implícitamente a más de una.`;
   }
 
   async analyzeResults(userQuery, data, chartConfig) {
@@ -743,6 +935,51 @@ Tono: directo y orientado a la acción. Máximo 180 palabras. Usa $ (dólares), 
           messages: [{ role: 'user', content: churnPrompt }]
         });
         return churnResponse.content[0].text.trim();
+      }
+
+      // Special analysis for client profile (ficha técnica)
+      if (chartConfig?.nameKey != null && data.length > 0) {
+        const row = data[0];
+        const fmtUSD = (n) => n != null ? `$${Math.round(n).toLocaleString()}` : 'N/D';
+        const fmtPct = (n) => n != null ? `${n}%` : 'N/D';
+
+        const profilePrompt = `Eres un analista de cartera de clientes. Analiza este perfil de cliente y genera un resumen ejecutivo breve.
+
+DATOS DEL CLIENTE:
+${JSON.stringify(row, null, 2)}
+
+Genera un análisis conciso en español con EXACTAMENTE estas secciones:
+
+👤 **PERFIL GENERAL**
+- Nombre, tipo de cliente, ciudad, vendedor asignado
+
+💰 **DESEMPEÑO FINANCIERO**
+- Ventas totales lifetime vs últimos 6 meses. ¿Está creciendo, estable o decayendo?
+- Ticket promedio: ¿aumentó o bajó en los últimos 6 meses vs histórico?
+
+⏱️ **COMPORTAMIENTO DE COMPRA**
+- Frecuencia habitual vs días sin comprar. ¿Está dentro de su ciclo normal o en riesgo?
+- Estado: activo / en seguimiento / en riesgo (basado en DiasSinCompra vs FrecuenciaPromDias)
+
+💡 **RECOMENDACIÓN**
+- Una acción concreta para este cliente (llamar, visitar, enviar oferta, renovar crédito, etc.)
+
+REGLAS:
+- Máximo 150 palabras total
+- Usa viñetas (•)
+- Usa $ (dólares), NUNCA €
+- Si DiasSinCompra > FrecuenciaPromDias * 1.5: marcar como "en riesgo"
+- Si Balance > CreditLine * 0.8: mencionar que el crédito está casi al tope
+- Si VentaReciente6M < VentaTotal / (NumFacturas / 6 * 0.7): mencionar caída de compras recientes
+
+Responde SOLO con el texto del análisis.`;
+
+        const profileResponse = await this.client.messages.create({
+          model: this.model,
+          max_tokens: 450,
+          messages: [{ role: 'user', content: profilePrompt }]
+        });
+        return profileResponse.content[0].text.trim();
       }
 
       // Special analysis for visit plan results
@@ -888,7 +1125,7 @@ Ejemplo: ["Top 5 clientes de esta categoría", "Comparar con el mes anterior", "
 
       const response = await this.client.messages.create({
         model: this.model,
-        max_tokens: 1500,
+        max_tokens: 3000,
         messages: messages,
         system: this.getSystemPrompt(metadata, dateFilter, userFilter, resolvedEntities)
       });

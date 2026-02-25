@@ -1,18 +1,36 @@
 import React, { useState } from 'react';
 import ChartContainer from './ChartContainer';
 
+const renderInline = (text) => {
+  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*)/g);
+  return parts.map((part, idx) => {
+    if (part.startsWith('**') && part.endsWith('**')) return <strong key={idx}>{part.slice(2, -2)}</strong>;
+    if (part.startsWith('*') && part.endsWith('*'))   return <em key={idx}>{part.slice(1, -1)}</em>;
+    return part;
+  });
+};
+
+const renderMarkdownLine = (text) => {
+  if (text.startsWith('## ')) return <strong style={{ display: 'block', marginTop: 4 }}>{renderInline(text.slice(3))}</strong>;
+  if (text.startsWith('# '))  return <strong style={{ display: 'block', marginTop: 4 }}>{renderInline(text.slice(2))}</strong>;
+  return renderInline(text);
+};
+
 function ChartCarousel({ results, onDrillDown }) {
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [showSQL, setShowSQL] = useState(false);
 
   if (!results || results.length === 0) {
     return null;
   }
 
   const goToPrevious = () => {
+    setShowSQL(false);
     setCurrentIndex((prev) => (prev === 0 ? results.length - 1 : prev - 1));
   };
 
   const goToNext = () => {
+    setShowSQL(false);
     setCurrentIndex((prev) => (prev === results.length - 1 ? 0 : prev + 1));
   };
 
@@ -91,12 +109,22 @@ function ChartCarousel({ results, onDrillDown }) {
           </div>
           <div className="analysis-content">
             {currentResult.analysis.split('\n').map((line, i) => (
-              <span key={i}>
-                {line}
+              <React.Fragment key={i}>
+                {renderMarkdownLine(line)}
                 {i < currentResult.analysis.split('\n').length - 1 && <br />}
-              </span>
+              </React.Fragment>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* SQL toggle for current result */}
+      {currentResult.sql && (
+        <div className="sql-section">
+          <button className="sql-toggle" onClick={() => setShowSQL(!showSQL)}>
+            {showSQL ? '▼' : '▶'} Ver SQL
+          </button>
+          {showSQL && <pre className="sql-code">{currentResult.sql}</pre>}
         </div>
       )}
 

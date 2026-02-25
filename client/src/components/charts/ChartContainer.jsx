@@ -274,7 +274,7 @@ function MapChart({ validPoints, totalCount, latKey, lngKey, labelKey, valueKey,
                       {humanize(valueKey)}: <strong>{fmtValue(point)}</strong>
                     </div>
                   )}
-                  {point.PromedioCompra != null && (
+                  {point.PromedioCompra != null && valueKey !== 'PromedioCompra' && (
                     <div style={{ color: '#475569', fontSize: 12 }}>
                       Promedio por factura: <strong>${Math.round(Number(point.PromedioCompra)).toLocaleString()}</strong>
                     </div>
@@ -397,6 +397,19 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
       return allJanuary ? 'yearly' : 'monthly';
     }
 
+    // Check if spacing between dates is ~7 days (weekly data)
+    // Deduplicate first — long-format data has same date repeated per series
+    if (dateValues.length >= 2) {
+      const uniqueTs = [...new Set(dateValues.map(v => new Date(v).getTime()))].sort((a, b) => a - b);
+      if (uniqueTs.length >= 2) {
+        const gaps = [];
+        for (let i = 1; i < uniqueTs.length; i++) gaps.push(uniqueTs[i] - uniqueTs[i - 1]);
+        const avgGap = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+        const dayMs = 86400000;
+        if (avgGap >= 5 * dayMs && avgGap <= 9 * dayMs) return 'weekly';
+      }
+    }
+
     // If days vary, it's daily data
     return 'daily';
   };
@@ -455,7 +468,9 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
         const monthNames = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 
         // Format based on detected granularity
-        if (dataGranularity === 'daily') {
+        if (dataGranularity === 'weekly') {
+          return `${day} ${monthNames[month]}`; // Show "5 ene", "12 ene", "2 feb"
+        } else if (dataGranularity === 'daily') {
           return day.toString(); // Show just day (1-31)
         } else if (dataGranularity === 'monthly') {
           return monthNames[month]; // Show just month (ene, feb, etc.)
@@ -869,10 +884,42 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
           </ResponsiveContainer>
         );
 
-      case 'area':
+      case 'area': {
+        const areaColors = ['#dc2626', '#2563eb', '#16a34a', '#d97706', '#7c3aed', '#0891b2'];
+
+        // Detect long-format (duplicate xKey values) → pivot to wide
+        const xVals = data.map(r => r[xKey]);
+        const hasLongFormat = xVals.length !== new Set(xVals).size;
+
+        let areaData = data;
+        let areaKeys = [yKey];
+
+        if (hasLongFormat) {
+          // Long format: find the series column (first string col != xKey) and value col (first numeric)
+          const seriesCol = chartConfig?.seriesKey || Object.keys(data[0]).find(k => k !== xKey && typeof data[0][k] === 'string');
+          // Prefer explicitly configured key, then columns with "acumul" in name, then first numeric
+          const valueCol  = chartConfig?.yKey || chartConfig?.valueKey ||
+            Object.keys(data[0]).find(k => k !== xKey && k !== seriesCol && typeof data[0][k] === 'number' && k.toLowerCase().includes('acumul')) ||
+            Object.keys(data[0]).find(k => k !== xKey && k !== seriesCol && typeof data[0][k] === 'number');
+          if (seriesCol && valueCol) {
+            const pivotMap = {};
+            data.forEach(row => {
+              const x = row[xKey];
+              if (!pivotMap[x]) pivotMap[x] = { [xKey]: x };
+              pivotMap[x][row[seriesCol]] = row[valueCol];
+            });
+            areaData = Object.values(pivotMap).sort((a, b) => String(a[xKey]).localeCompare(String(b[xKey])));
+            areaKeys = [...new Set(data.map(r => r[seriesCol]))];
+          }
+        } else {
+          // Wide format: all numeric cols except xKey
+          const numericCols = Object.keys(data[0]).filter(k => k !== xKey && typeof data[0][k] === 'number');
+          if (numericCols.length > 1) areaKeys = numericCols;
+        }
+
         return (
           <ResponsiveContainer width="100%" height={400}>
-            <AreaChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+            <AreaChart data={areaData} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
               <XAxis
                 dataKey={xKey}
@@ -885,16 +932,21 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
               <YAxis tickFormatter={formatValue} tick={{ fontSize: 12 }} />
               <Tooltip formatter={formatValue} labelFormatter={formatXAxis} />
               <Legend />
-              <Area
-                type="monotone"
-                dataKey={yKey}
-                stroke="#dc2626"
-                fill="#dc2626"
-                fillOpacity={0.3}
-              />
+              {areaKeys.map((key, i) => (
+                <Area
+                  key={key}
+                  type="monotone"
+                  dataKey={key}
+                  stroke={areaColors[i % areaColors.length]}
+                  fill={areaColors[i % areaColors.length]}
+                  fillOpacity={0.2}
+                  strokeWidth={2}
+                />
+              ))}
             </AreaChart>
           </ResponsiveContainer>
         );
+      }
 
       case 'scatter':
         // Validate that xKey and yKey are numeric for scatter plots
@@ -1375,6 +1427,244 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
             {data.length === 0 && (
               <div style={{ textAlign: 'center', padding: '32px 0', color: '#94a3b8', fontSize: 13 }}>
                 No se encontraron clientes en riesgo. ¡Todos al día! 🎉
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      case 'profile': {
+        if (!data || data.length === 0) {
+          return <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>No se encontraron datos para este cliente.</div>;
+        }
+        const row = data[0];
+        const fmtUSD = (n) => n != null && !isNaN(n) ? `$${Math.round(n).toLocaleString()}` : '—';
+        const fmtPct = (n) => n != null && !isNaN(n) ? `${Number(n).toFixed(1)}%` : '—';
+        const fmtDate = (s) => {
+          if (!s) return '—';
+          const d = new Date(s);
+          return isNaN(d) ? s : d.toLocaleDateString('es-EC', { year: 'numeric', month: 'short', day: 'numeric' });
+        };
+
+        const hasMargin = row.MargenLifetime != null;
+        const hasCredit = row.Balance != null || row.CreditLine != null;
+
+        const diasSinCompra = row.DiasSinCompra ?? 0;
+        const frecuencia = row.FrecuenciaPromDias ?? 0;
+        const isAtRisk = frecuencia > 0 && diasSinCompra > frecuencia * 1.5;
+        const statusColor = isAtRisk ? '#dc2626' : diasSinCompra > frecuencia ? '#d97706' : '#059669';
+        const statusLabel = isAtRisk ? '⚠️ En riesgo' : diasSinCompra > frecuencia ? '🟡 En seguimiento' : '✅ Activo';
+
+        const diasHastaCompra = frecuencia > 0 ? Math.round(frecuencia - diasSinCompra) : null;
+        const nextColor = diasHastaCompra == null ? '#94a3b8' : diasHastaCompra >= 0 ? '#059669' : '#dc2626';
+        const nextLabel = diasHastaCompra == null ? '—' : diasHastaCompra >= 0 ? `en ~${diasHastaCompra}d` : `vencido ~${Math.abs(diasHastaCompra)}d`;
+
+        const crecimiento = row.CrecimientoSemestral;
+        const crecColor = crecimiento == null ? '#94a3b8' : crecimiento >= 0 ? '#059669' : '#dc2626';
+        const crecArrow = crecimiento == null ? '' : crecimiento >= 0 ? '▲' : '▼';
+
+        const itemsDelta = (row.ItemsUnicos6M != null && row.ItemsUnicos6M_Anterior != null)
+          ? row.ItemsUnicos6M - row.ItemsUnicos6M_Anterior : null;
+        const itemsDeltaColor = itemsDelta == null ? '#94a3b8' : itemsDelta >= 0 ? '#059669' : '#dc2626';
+        const itemsDeltaLabel = itemsDelta == null ? '' : `${itemsDelta >= 0 ? '▲' : '▼'}${Math.abs(itemsDelta)} vs sem.ant.`;
+
+        const creditAvailable = (row.CreditLine ?? 0) - (row.Balance ?? 0);
+        const creditUsedPct = row.CreditLine > 0 ? ((row.Balance ?? 0) / row.CreditLine) * 100 : 0;
+        const creditColor = creditUsedPct >= 80 ? '#dc2626' : creditUsedPct >= 60 ? '#d97706' : '#059669';
+
+        const kpiStyle = {
+          flex: 1, minWidth: 0, padding: '12px 10px', background: '#f8fafc',
+          borderRadius: 10, textAlign: 'center', border: '1px solid #e2e8f0'
+        };
+        const kpiLabel = { fontSize: 10, color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 };
+        const kpiValue = { fontSize: 16, fontWeight: 700, color: '#1e293b' };
+        const kpiSub   = { fontSize: 10, color: '#64748b', marginTop: 2 };
+
+        return (
+          <div style={{ padding: '4px 0', width: '100%', boxSizing: 'border-box' }}>
+            {/* Header */}
+            <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 12, padding: '14px 16px', marginBottom: 10, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: '#0f172a', lineHeight: 1.3 }}>
+                    🏢 {row.Cardname ?? '—'}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+                    {row.CardCode && <span style={{ marginRight: 8 }}>#{row.CardCode}</span>}
+                    {row.TipoCliente && <span style={{ marginRight: 8 }}>· {row.TipoCliente}</span>}
+                    {(row.CiudadPrincipal || row.ProvinciaPrincipal) && (
+                      <span>📍 {[row.CiudadPrincipal, row.ProvinciaPrincipal].filter(Boolean).join(', ')}</span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                    {row.NombreVendedor && <span>👤 {row.NombreVendedor}</span>}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <span style={{ padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, color: statusColor, background: statusColor + '18' }}>
+                    {statusLabel}
+                  </span>
+                  <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 4 }}>
+                    {fmtDate(row.PrimeraCompra)} → {fmtDate(row.UltimaCompra)}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Main KPIs */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              <div style={kpiStyle}>
+                <div style={kpiLabel}>Ventas totales</div>
+                <div style={kpiValue}>{fmtUSD(row.VentaTotal)}</div>
+                <div style={kpiSub}>{row.NumFacturas ?? '—'} facturas</div>
+              </div>
+              <div style={kpiStyle}>
+                <div style={kpiLabel}>Ticket promedio</div>
+                <div style={kpiValue}>{fmtUSD(row.TicketPromedio)}</div>
+                <div style={kpiSub}>lifetime</div>
+              </div>
+              <div style={kpiStyle}>
+                <div style={kpiLabel}>Días sin compra</div>
+                <div style={{ ...kpiValue, color: statusColor }}>{row.DiasSinCompra ?? '—'}d</div>
+                <div style={kpiSub}>frecuencia ~{row.FrecuenciaPromDias ?? '—'}d</div>
+              </div>
+              <div style={kpiStyle}>
+                <div style={kpiLabel}>Próxima compra</div>
+                <div style={{ ...kpiValue, color: nextColor, fontSize: 14 }}>{nextLabel}</div>
+                <div style={kpiSub}>estimado</div>
+              </div>
+            </div>
+
+            {/* Last 6 months */}
+            <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', marginBottom: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
+                Últimos 6 meses
+              </div>
+              <div style={{ display: 'flex', gap: 16 }}>
+                <div>
+                  <div style={kpiLabel}>Ventas</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>{fmtUSD(row.VentaReciente6M)}</div>
+                </div>
+                <div>
+                  <div style={kpiLabel}>Ticket prom.</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>{fmtUSD(row.TicketReciente)}</div>
+                </div>
+                <div>
+                  <div style={kpiLabel}>Facturas</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>{row.FacturasRecientes ?? '—'}</div>
+                </div>
+                <div>
+                  <div style={kpiLabel}>Frec. compra</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>~{row.FrecuenciaPromDias ?? '—'}d</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Tendencia & Actividad */}
+            {(crecimiento != null || row.ItemsUnicos6M != null) && (
+              <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', marginBottom: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
+                  Tendencia &amp; Actividad
+                </div>
+                <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' }}>
+                  {crecimiento != null && (
+                    <div>
+                      <div style={kpiLabel}>Crecimiento semestral</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: crecColor }}>
+                        {crecArrow} {Math.abs(crecimiento)}%
+                      </div>
+                      <div style={kpiSub}>vs semestre anterior</div>
+                    </div>
+                  )}
+                  {row.ItemsUnicos6M != null && (
+                    <div>
+                      <div style={kpiLabel}>Items únicos (6M)</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>{row.ItemsUnicos6M}</div>
+                      {itemsDelta != null && (
+                        <div style={{ fontSize: 10, color: itemsDeltaColor, marginTop: 2 }}>{itemsDeltaLabel}</div>
+                      )}
+                    </div>
+                  )}
+                  {row.ItemsUnicosTotal != null && (
+                    <div>
+                      <div style={kpiLabel}>Items lifetime</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: '#64748b' }}>{row.ItemsUnicosTotal}</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Margin (conditional) */}
+            {hasMargin && (
+              <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', marginBottom: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
+                  Margen
+                </div>
+                <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                  <div>
+                    <div style={kpiLabel}>Lifetime</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>{fmtPct(row.MargenLifetime)}</div>
+                  </div>
+                  {row.MargenUltimos12M != null && (
+                    <div>
+                      <div style={kpiLabel}>Últimos 12M</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: row.MargenUltimos12M < row.MargenLifetime ? '#dc2626' : '#059669' }}>{fmtPct(row.MargenUltimos12M)}</div>
+                    </div>
+                  )}
+                  {row.MargenReciente6M != null && (
+                    <div>
+                      <div style={kpiLabel}>Últimos 6M</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: row.MargenReciente6M < (row.MargenUltimos12M ?? row.MargenLifetime) ? '#dc2626' : '#059669' }}>{fmtPct(row.MargenReciente6M)}</div>
+                    </div>
+                  )}
+                  {row.MargenUltimoMes != null && (
+                    <div>
+                      <div style={kpiLabel}>Último mes</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: row.MargenUltimoMes < (row.MargenReciente6M ?? row.MargenUltimos12M ?? row.MargenLifetime) ? '#dc2626' : '#059669' }}>{fmtPct(row.MargenUltimoMes)}</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Credit (conditional) */}
+            {hasCredit && (
+              <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', marginBottom: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
+                  Crédito
+                </div>
+                <div style={{ display: 'flex', gap: 24, alignItems: 'flex-end' }}>
+                  <div>
+                    <div style={kpiLabel}>Saldo</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: creditColor }}>{fmtUSD(row.Balance)}</div>
+                  </div>
+                  <div>
+                    <div style={kpiLabel}>Cupo</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>{fmtUSD(row.CreditLine)}</div>
+                  </div>
+                  <div>
+                    <div style={kpiLabel}>Disponible</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: '#059669' }}>{fmtUSD(creditAvailable)}</div>
+                  </div>
+                  {row.CreditLine > 0 && (
+                    <div style={{ flex: 1 }}>
+                      <div style={kpiLabel}>Uso de crédito</div>
+                      <div style={{ background: '#f1f5f9', borderRadius: 4, height: 8, overflow: 'hidden', marginTop: 2 }}>
+                        <div style={{ height: '100%', width: `${Math.min(100, creditUsedPct)}%`, background: creditColor, borderRadius: 4 }} />
+                      </div>
+                      <div style={{ fontSize: 10, color: creditColor, marginTop: 2 }}>{Math.round(creditUsedPct)}%</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Top families */}
+            {row.TopFamilias && (
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 14px', fontSize: 12 }}>
+                <span style={{ fontWeight: 600, color: '#475569', marginRight: 8 }}>Top familias:</span>
+                <span style={{ color: '#1e293b' }}>{row.TopFamilias}</span>
               </div>
             )}
           </div>

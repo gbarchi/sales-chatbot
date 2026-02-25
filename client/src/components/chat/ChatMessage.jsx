@@ -326,6 +326,8 @@ function ChatMessage({ message, onClarificationSelect, onFollowUpClick, userQuer
 
         .message-content {
           max-width: calc(100% - 44px);
+          flex: 1;
+          min-width: 0;
         }
 
         .message-text {

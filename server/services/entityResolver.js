@@ -85,12 +85,14 @@ export function resolveEntities(query, metadata) {
 
   // Define which metadata columns to match against
   const dimensions = [
-    { column: 'ItmsgrpName',        values: metadata.grupos       || [], isPersonName: false },
-    { column: 'SubFamiliaName',     values: metadata.subfamilias  || [], isPersonName: false },
-    { column: 'Categoria',          values: metadata.categorias   || [], isPersonName: false },
-    { column: 'ProvinciaPrincipal', values: metadata.provincias   || [], isPersonName: false },
-    { column: 'NombreSupervisor',   values: metadata.supervisores || [], isPersonName: true  },
-    { column: 'NombreVendedor',     values: metadata.vendedores   || [], isPersonName: true  },
+    { column: 'ItmsgrpName',        values: metadata.grupos          || [], isPersonName: false },
+    { column: 'SubFamiliaName',     values: metadata.subfamilias     || [], isPersonName: false },
+    { column: 'Categoria',          values: metadata.categorias      || [], isPersonName: false },
+    { column: 'Categoria_SN',       values: metadata.categoria_sn    || [], isPersonName: false },
+    { column: 'SubCategoria_SN',    values: metadata.subcategoria_sn || [], isPersonName: false },
+    { column: 'ProvinciaPrincipal', values: metadata.provincias      || [], isPersonName: false },
+    { column: 'NombreSupervisor',   values: metadata.supervisores    || [], isPersonName: true  },
+    { column: 'NombreVendedor',     values: metadata.vendedores      || [], isPersonName: true  },
   ];
 
   for (const dim of dimensions) {
