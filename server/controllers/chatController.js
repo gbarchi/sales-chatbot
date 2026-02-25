@@ -287,6 +287,22 @@ export async function handleChat(req, res) {
           // Skip empty results - don't add to carousel if no data
           if (!data || data.length === 0) continue;
 
+          // For profile queries: override NombreVendedor with current assignment from clients table
+          // (sales history may contain old vendors; clients.csv has the current assigned vendor)
+          if (queryItem.chartType === 'profile' && data.length > 0 && dataService.hasClients) {
+            const cardCode = data[0].CardCode;
+            if (cardCode) {
+              try {
+                const vendorRows = await dataService.executeQuery(
+                  `SELECT NombreVendedor FROM clients WHERE CardCode = '${cardCode.replace(/'/g, "''")}' LIMIT 1`
+                );
+                if (vendorRows.length > 0 && vendorRows[0].NombreVendedor) {
+                  data[0].NombreVendedor = vendorRows[0].NombreVendedor;
+                }
+              } catch (e) { /* silent — keep sales vendor as fallback */ }
+            }
+          }
+
           const analysis = data && data.length > 0
             ? await llmService.analyzeResults(query, data, queryItem.chartConfig)
             : null;
