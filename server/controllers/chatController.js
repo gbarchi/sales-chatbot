@@ -116,7 +116,6 @@ function checkMarginAccess(sql, canViewMargin) {
   const forbiddenPatterns = [
     /LINECOST/,  // Any reference to LineCost column
     /\(SUM\(LINETOTAL\)\s*-\s*SUM\(LINECOST\)\)/,  // Margin formula: (SUM(LineTotal) - SUM(LineCost))
-    /\bMARGEN\b/,  // The Margen column itself (word boundary to avoid false positives)
   ];
 
   for (const pattern of forbiddenPatterns) {
@@ -280,8 +279,30 @@ export async function handleChat(req, res) {
           });
         }
 
+        let queryData;
+        let querySQL = queryItem.sql;
         try {
-          const data = await dataService.executeQuery(queryItem.sql);
+          queryData = await dataService.executeQuery(querySQL);
+        } catch (sqlError) {
+          console.error('SQL Error in multi-query (attempt 1):', sqlError.message);
+          const fixedSQL = await llmService.fixSQL(query, querySQL, sqlError.message);
+          if (fixedSQL) {
+            try {
+              queryData = await dataService.executeQuery(fixedSQL);
+              querySQL = fixedSQL;
+              console.log('SQL auto-corrected successfully (multi-query)');
+            } catch (retryError) {
+              console.error('SQL Error in multi-query (attempt 2):', retryError.message);
+              results.push({ error: true, message: 'Error ejecutando la consulta' });
+              continue;
+            }
+          } else {
+            results.push({ error: true, message: 'Error ejecutando la consulta' });
+            continue;
+          }
+        }
+        {
+          const data = queryData;
           if (clientDisconnected) break;
 
           // Skip empty results - don't add to carousel if no data
@@ -313,14 +334,8 @@ export async function handleChat(req, res) {
             chartConfig: queryItem.chartConfig,
             explanation: queryItem.explanation,
             analysis,
-            sql: queryItem.sql,
+            sql: querySQL,
             rowCount: data.length
-          });
-        } catch (sqlError) {
-          console.error('SQL Error in multi-query:', sqlError);
-          results.push({
-            error: true,
-            message: 'Error ejecutando la consulta'
           });
         }
       }
@@ -374,16 +389,34 @@ export async function handleChat(req, res) {
     }
 
     let data;
+    let finalSQL = llmResponse.sql;
     try {
-      data = await dataService.executeQuery(llmResponse.sql);
+      data = await dataService.executeQuery(finalSQL);
     } catch (sqlError) {
-      console.error('SQL Error:', sqlError);
-      logData.result_type   = 'error';
-      logData.error_message = sqlError.message;
-      return safeSend({
-        type: 'error',
-        message: 'Error ejecutando la consulta. Por favor intenta reformular tu pregunta.'
-      });
+      console.error('SQL Error (attempt 1):', sqlError.message);
+      const fixedSQL = await llmService.fixSQL(query, finalSQL, sqlError.message);
+      if (fixedSQL) {
+        try {
+          data = await dataService.executeQuery(fixedSQL);
+          finalSQL = fixedSQL;
+          console.log('SQL auto-corrected successfully');
+        } catch (retryError) {
+          console.error('SQL Error (attempt 2):', retryError.message);
+          logData.result_type   = 'error';
+          logData.error_message = retryError.message;
+          return safeSend({
+            type: 'error',
+            message: 'Error ejecutando la consulta. Por favor intenta reformular tu pregunta.'
+          });
+        }
+      } else {
+        logData.result_type   = 'error';
+        logData.error_message = sqlError.message;
+        return safeSend({
+          type: 'error',
+          message: 'Error ejecutando la consulta. Por favor intenta reformular tu pregunta.'
+        });
+      }
     }
 
     if (clientDisconnected) return;
@@ -397,7 +430,7 @@ export async function handleChat(req, res) {
         type: 'conversational',
         message: 'No se encontraron datos para esta consulta. Es posible que el período solicitado no tenga registros disponibles o que el filtro activo no incluya ese rango de fechas.',
         explanation: 'Sin resultados',
-        sql: llmResponse.sql  // Include SQL so user can debug what was queried
+        sql: finalSQL  // Include SQL so user can debug what was queried
       });
     }
 
@@ -425,7 +458,7 @@ export async function handleChat(req, res) {
       explanation: llmResponse.explanation,
       analysis: analysis,
       followUps,
-      sql: llmResponse.sql,
+      sql: finalSQL,
       rowCount: data.length
     });
 

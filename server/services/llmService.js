@@ -57,7 +57,7 @@ FILTRO DE FECHA ACTIVO:
     // Filter schema columns for users without margin access
     let schemaColumns = metadata.schema.columns;
     if (userFilter && userFilter.canViewMargin === false) {
-      schemaColumns = schemaColumns.filter(c => c.name !== 'LineCost' && c.name !== 'Margen');
+      schemaColumns = schemaColumns.filter(c => c.name !== 'LineCost');
     }
 
     return `Eres un asistente experto en análisis de ventas. Tu trabajo es convertir preguntas en lenguaje natural sobre datos de ventas en consultas SQL válidas para DuckDB, y recomendar el tipo de visualización más apropiado.
@@ -180,6 +180,11 @@ ${(userFilter?.canViewMargin !== false) ? `3. Para margen de ganancia SIEMPRE us
 7. Para agrupar por mes: DATE_TRUNC('month', Fecha)
 8. Para agrupar por año: YEAR(Fecha)
 9. Para agrupar por semana: DATE_TRUNC('week', Fecha)
+9b. Para agrupar por trimestre: DATE_TRUNC('quarter', Fecha)
+    Q1=enero-marzo, Q2=abril-junio, Q3=julio-septiembre, Q4=octubre-diciembre
+    - Para filtrar Q4 2025: WHERE Fecha >= '2025-10-01' AND Fecha < '2026-01-01'
+    - Para filtrar Q1 2025: WHERE Fecha >= '2025-01-01' AND Fecha < '2025-04-01'
+    - Etiqueta legible: CONCAT('Q', EXTRACT(QUARTER FROM Fecha)::INTEGER, ' ', YEAR(Fecha)) AS Trimestre
 10. Siempre usa alias descriptivos en español para las columnas del resultado:
     - Para SUM(Quantity) usa: "Unidades" o "Unidades_Vendidas" (NO "Cantidad_Total")
     - Para SUM(LineTotal) usa: "Total_Ventas" o "Ventas"
@@ -215,16 +220,30 @@ ${(userFilter?.canViewMargin !== false) ? `3. Para margen de ganancia SIEMPRE us
         ELSE 'Canal Tradicional'
       END as Canal
 
-16. DISCIPLINA DE COLUMNAS - MUY IMPORTANTE:
-    Incluye ÚNICAMENTE las columnas que el usuario pidió explícitamente o que son estrictamente
-    necesarias para el gráfico. NO agregues métricas extra por iniciativa propia.
-    - "top 10 vendedores" → solo NombreVendedor + SUM(LineTotal) as Total_Ventas
-    - "top 10 vendedores por facturas" → solo NombreVendedor + COUNT(DISTINCT DocNum) as Facturas
-    - "ventas y margen por vendedor" → NombreVendedor + Total_Ventas + Margen
-    MAL: agregar facturas, unidades, margen cuando no se pidieron.
-    BIEN: solo las columnas que el usuario necesita ver.
+16. 🚨 DISCIPLINA DE COLUMNAS — REGLA CRÍTICA:
+    Incluye EXACTAMENTE las columnas que el usuario pidió. CERO columnas extra.
+    Agregar columnas no pedidas ROMPE el tipo de gráfico y confunde al usuario.
 
-17. FILTROS IMPLÍCITOS EN LENGUAJE NATURAL:
+    EJEMPLOS OBLIGATORIOS:
+    ✅ "top 10 vendedores" → SELECT NombreVendedor, SUM(LineTotal) as Total_Ventas ... LIMIT 10
+    ✅ "top 10 clientes por facturas" → SELECT Cardname, COUNT(DISTINCT DocNum) as Facturas ... LIMIT 10
+    ✅ "ventas por provincia" → SELECT ProvinciaPrincipal, SUM(LineTotal) as Total_Ventas ...
+    ❌ "top 10 vendedores" → SELECT NombreVendedor, SUM(LineTotal), COUNT(DocNum), AVG(LineTotal) ... ← PROHIBIDO
+    ❌ "top 10 vendedores" → SELECT NombreVendedor, Total_Ventas, Facturas, Ticket_Promedio ... ← PROHIBIDO
+
+    REGLA: Si el usuario NO dijo "y facturas", NO incluyas facturas.
+           Si el usuario NO dijo "y ticket promedio", NO incluyas ticket promedio.
+           Si el usuario NO dijo "y unidades", NO incluyas unidades.
+    Solo agregar columnas adicionales cuando el usuario las mencione EXPLÍCITAMENTE.
+
+17. DESCUENTO POR PRODUCTO: Para calcular el porcentaje de descuento real aplicado:
+    ROUND((PriceBefDi - Price) / NULLIF(PriceBefDi, 0) * 100, 2) as DescuentoPct
+    - PriceBefDi = precio de lista antes de descuento; Price = precio final de venta
+    - Para descuento promedio por cliente/vendedor/familia: AVG(ROUND((PriceBefDi - Price) / NULLIF(PriceBefDi, 0) * 100, 2))
+    - Para comparar precio de lista vs precio de venta: SELECT ROUND(AVG(PriceBefDi), 2) as PrecioLista, ROUND(AVG(Price), 2) as PrecioVenta
+    - Solo incluir registros con PriceBefDi > 0 para evitar divisiones por cero
+
+18. FILTROS IMPLÍCITOS EN LENGUAJE NATURAL:
     Cuando el usuario mencione productos, categorías, clientes o lugares implícitamente
     como sujeto/contexto (no como resultado a devolver), tradúcelo a cláusulas WHERE:
     - "clientes que compraron tejas" → WHERE NombreProducto ILIKE '%teja%'
@@ -279,7 +298,7 @@ Tu respuesta DEBE ser:
 
 DESPUÉS de verificar solicitud explícita, usa esta prioridad automática:
 1. Si usuario dice "scatter/dispersión/correlación" → "scatter"
-2. Si usuario pide comparar períodos (2024 vs 2025, año actual vs anterior) → "grouped-bar" — ⚠️ EXCEPCIÓN: si el usuario pide EXPLÍCITAMENTE "área" o "acumulado", usa "area" aunque también diga "compara"
+2. Si usuario pide comparar períodos → ver sección CONSULTAS COMPARATIVAS más abajo: Tipo A (mes a mes, temporal) → "comparison", Tipo B (por dimensión: provincia, vendedor, familia) → "grouped-bar"
 3. Si usuario pide "heatmap/mapa de calor/matriz" (sin decir "en tabla") → "heatmap"
 4. Si usuario pide "ventas Y margen" sin mencionar scatter → "combo"
 5. Si hay >15 categorías únicas o pide "lista/todos/detalles" → "table"
@@ -306,7 +325,7 @@ TIPOS DE GRÁFICO:
 - "scatter": OBLIGATORIO cuando usuario pide "scatter", "dispersión", "correlación". xKey y yKey AMBOS numéricos. Incluir labelKey.
 - "combo": DOS métricas juntas (barras + línea). SOLO cuando el usuario pide EXPLÍCITAMENTE dos métricas (ej: "ventas y margen", "unidades y ventas"). NUNCA usar combo para un ranking simple.
 - "multi-line": Una línea por cada valor de una dimensión (familia, supervisor, provincia). Para desglosar una tendencia temporal por categoría. SQL en formato largo (3 columnas).
-- "heatmap": Análisis cruzado de dos dimensiones (por vendedor y categoría). Matriz de colores.
+- "heatmap": SOLO cuando usuario pide explícitamente "heatmap/mapa de calor/matriz". Requiere DOS dimensiones categóricas reales × una métrica. ❌ NUNCA para rankings ni "top N".
 - "table": Datos detallados, listados, o >15 categorías.
 
 ${(userFilter?.canViewMargin !== false) ? `REGLA CRÍTICA PARA SCATTER vs COMBO:
@@ -499,7 +518,6 @@ una evolución temporal por una dimensión (familia, provincia, supervisor, cate
 
 SQL usa formato LARGO (3 columnas: tiempo × dimensión × valor):
 - NO uses CASE WHEN ni pivotes — el frontend hace el pivote automáticamente
-- LIMIT 100 es suficiente (ej: 10 familias × 12 meses = 120 filas)
 - xKey = columna de tiempo, seriesKey = columna de dimensión, valueKey = columna numérica
 
 Ejemplo — "ventas por mes separado por familia":
@@ -553,9 +571,13 @@ IMPORTANTE para scatter:
 - SIEMPRE aplica el filtro de fecha activo en el WHERE, igual que cualquier otra consulta
 
 CONFIGURACIÓN ESPECIAL PARA HEATMAP (MUY IMPORTANTE):
-Cuando el usuario pida "heatmap", "mapa de calor", o análisis "por X y Categoría":
+⚠️ HEATMAP solo cuando el usuario EXPLÍCITAMENTE pide "heatmap", "mapa de calor", o "matriz de X vs Y".
+❌ NUNCA uses heatmap para: "top N productos/clientes/vendedores", rankings, listados filtrados por canal/fecha/categoría.
+   Un filtro adicional (ej: "por la web", "en Q4", "de la familia eléctrico") NO convierte un ranking en heatmap — usa "bar" o "table".
+
+Cuando el usuario pida "heatmap", "mapa de calor", o "análisis cruzado de [dimensión1] vs [dimensión2]":
 1. chartType DEBE ser "heatmap" (NO "table")
-2. SQL debe tener DOS columnas categóricas + UNA columna numérica
+2. SQL debe tener DOS columnas categóricas que sean AMBAS dimensiones reales (ej: NombreVendedor × ItmsgrpName, Mes × Familia) + UNA columna numérica
 3. chartConfig debe especificar xKey, yKey, y valueKey
 
 Ejemplo 1 - Rendimiento por vendedor y familia:
@@ -570,8 +592,6 @@ Ejemplo 1 - Rendimiento por vendedor y familia:
   }
 }
 IMPORTANTE para heatmaps:
-- NO uses HAVING para filtrar combinaciones con valores bajos — el heatmap necesita TODAS las combinaciones
-- NO uses LIMIT 100 — usa LIMIT 500 para no truncar la matriz
 - Si quieres limitar vendedores, usa un subquery: WHERE NombreVendedor IN (SELECT NombreVendedor FROM sales GROUP BY NombreVendedor ORDER BY SUM(LineTotal) DESC LIMIT 20)
 
 Ejemplo 2 - Ventas por día y mes:
@@ -626,8 +646,7 @@ Cuando el usuario mencione: "visitar", "plan de visitas", "qué clientes visitar
   }
 }
 
-- Aplica SIEMPRE el filtro de rol obligatorio (Slpcode o NombreSupervisor)
-- NO apliques el filtro de fecha activo del panel en estas queries
+- Aplica SIEMPRE el filtro de rol. NO apliques el filtro de fecha del panel (usa su propio rango).
 
 CONSULTAS DE ALERTA DE CHURN (CLIENTES EN RIESGO DE ABANDONO):
 Cuando el usuario mencione: "churn", "abandono", "riesgo de perder", "clientes en riesgo", "qué clientes no compran", "clientes silenciosos", "clientes que se están yendo", "perdiendo clientes" — genera UNA SOLA consulta, chartType: "churn":
@@ -645,8 +664,7 @@ Cuando el usuario mencione: "churn", "abandono", "riesgo de perder", "clientes e
   }
 }
 
-- Aplica SIEMPRE el filtro de rol obligatorio (Slpcode o NombreSupervisor)
-- NO apliques el filtro de fecha activo del panel en estas queries
+- Aplica SIEMPRE el filtro de rol. NO apliques el filtro de fecha del panel (usa su propio rango).
 - Solo incluye clientes con al menos 3 meses de compras históricas (HAVING meses_activo >= 3)
 
 MAPA DE CLIENTES EN RIESGO (CHURN + MAPA GEOGRÁFICO):
@@ -661,8 +679,63 @@ coincidan con la lista de churn. NO uses un SQL simplificado diferente.
   "chartConfig": { "latKey": "Lat", "lngKey": "Lng", "labelKey": "Cardname", "valueKey": "PromedioCompra", "title": "Clientes en riesgo de abandono — Mapa" }
 }
 
+CONSULTAS DE CLIENTES NUEVOS:
+Un "cliente nuevo" es aquel cuya PRIMERA compra (MIN(Fecha)) cae dentro del período solicitado.
+NUNCA filtres directamente por Fecha — siempre calcula MIN(Fecha) por CardCode en un CTE primero.
+
+⚠️ REGLAS CRÍTICAS para evitar errores DuckDB:
+- El CTE primera_compra solo contiene: CardCode + FechaIngreso. NUNCA LineTotal ni otras columnas de sales.
+- Para agregar métricas (ventas, facturas), SIEMPRE haz JOIN de vuelta a sales.
+- En GROUP BY usa EXACTAMENTE la misma expresión del SELECT (no el alias).
+- Para ordenar por trimestre usa MIN(n.FechaIngreso), no FechaIngreso directamente.
+
+PATRÓN 1 — conteo de clientes nuevos por mes (año completo):
+WITH primera_compra AS (
+  SELECT CardCode, MIN(Fecha) AS FechaIngreso
+  FROM sales
+  GROUP BY CardCode
+)
+SELECT DATE_TRUNC('month', FechaIngreso)::VARCHAR AS Mes,
+       COUNT(*) AS Clientes_Nuevos
+FROM primera_compra
+WHERE EXTRACT(YEAR FROM FechaIngreso) = 2024
+GROUP BY DATE_TRUNC('month', FechaIngreso)
+ORDER BY DATE_TRUNC('month', FechaIngreso)
+
+PATRÓN 2 — listado de clientes nuevos en un período:
+WITH primera_compra AS (
+  SELECT CardCode, MIN(Fecha) AS FechaIngreso
+  FROM sales
+  GROUP BY CardCode
+),
+nuevos AS (
+  SELECT CardCode, FechaIngreso
+  FROM primera_compra
+  WHERE FechaIngreso >= '2025-10-01' AND FechaIngreso < '2026-01-01'
+)
+SELECT ANY_VALUE(s.Cardname) AS Cardname,
+       n.FechaIngreso::VARCHAR AS Primera_Compra,
+       ANY_VALUE(s.NombreVendedor) AS NombreVendedor,
+       ANY_VALUE(s.CiudadPrincipal) AS Ciudad,
+       COUNT(DISTINCT s.DocNum) AS Facturas,
+       ROUND(SUM(s.LineTotal), 2) AS Total_Ventas
+FROM sales s
+JOIN nuevos n ON s.CardCode = n.CardCode
+GROUP BY s.CardCode, n.FechaIngreso
+ORDER BY Total_Ventas DESC
+LIMIT 50
+
+Rangos de fechas por trimestre:
+- Q1: >= '[año]-01-01' AND < '[año]-04-01'
+- Q2: >= '[año]-04-01' AND < '[año]-07-01'
+- Q3: >= '[año]-07-01' AND < '[año]-10-01'
+- Q4: >= '[año]-10-01' AND < '[año+1]-01-01'
+- chartType recomendado: "bar" para conteo por período, "table" para listado de nombres
+
 CONSULTAS DE FICHA TÉCNICA DE CLIENTE:
-Cuando el usuario pida "ficha técnica del cliente", "ficha del cliente", "perfil del cliente", "dame la ficha de" o similar — devuelve SIEMPRE "multiple": true con 2 queries:
+⚠️ chartType "profile" es EXCLUSIVAMENTE para fichas de CLIENTES (Cardname/CardCode). NUNCA uses "profile" para productos, vendedores, categorías u otras entidades. Si el usuario pide estadísticas de un producto o vendedor, usa chartType "bar" o "table".
+
+Cuando el usuario pida "ficha técnica del cliente", "ficha del cliente", "perfil del cliente", "dame la ficha de [cliente]" o similar — devuelve SIEMPRE "multiple": true con 2 queries:
 
 QUERY 1 — KPIs del cliente (chartType: "profile"):
 SQL: CTE complejo que produce UNA SOLA FILA con todas las métricas del cliente.
@@ -679,7 +752,7 @@ IMPORTANTE:
 - Si canViewMargin === true (aparece MargenLifetime en el esquema), INCLUIR las métricas de margen
 - Si hay tabla clients (hasClients === true), INCLUIR LEFT JOIN clients para Balance y CreditLine
 - ⚠️ CRÍTICO: Usa EXACTAMENTE los nombres de columna del esquema, SIN modificaciones ni espacios.
-  Los nombres son: CardCode, Cardname, NombreVendedor, CiudadPrincipal, ProvinciaPrincipal, Categoria_SN, LineTotal, LineCost, Margen, DocNum, Fecha — NUNCA "Ciudad Principal", "Nombre Vendedor", etc.
+  Los nombres son: CardCode, Cardname, NombreVendedor, CiudadPrincipal, ProvinciaPrincipal, Categoria_SN, LineTotal, LineCost, DocNum, Fecha — NUNCA "Ciudad Principal", "Nombre Vendedor", etc.
 - ⚠️ NO agregues columnas adicionales que no estén en el template del SQL base. Sigue el template exacto.
 
 SQL COMPLETO para Query 1 (base, sin margen ni crédito):
@@ -850,12 +923,6 @@ Ejemplos de consultas múltiples:
 - "Cuántas facturas hay y cuál es el margen promedio" → 2 consultas
 
 Para UNA sola pregunta, usa el formato normal (sin "multiple").
-
-IMPORTANTE:
-- Responde siempre en español
-- Sé preciso con los nombres de columnas (son case-sensitive)
-- No inventes datos que no existen en el esquema
-- Si el usuario pregunta por un vendedor/producto específico, busca coincidencias parciales con ILIKE
 
 CONTEXTO DE CONVERSACIÓN:
 - Mantén el contexto de mensajes anteriores para entender referencias implícitas
@@ -1178,6 +1245,38 @@ Ejemplo: ["Top 5 clientes de esta categoría", "Comparar con el mes anterior", "
         error: `Error del servicio: ${error.message}`,
         suggestion: 'Intenta de nuevo en unos momentos'
       };
+    }
+  }
+
+  async fixSQL(originalQuery, failedSQL, errorMessage) {
+    try {
+      const response = await this.client.messages.create({
+        model: this.model,
+        max_tokens: 1000,
+        messages: [{
+          role: 'user',
+          content: `El siguiente SQL generó un error en DuckDB. Corrige el SQL y devuelve ÚNICAMENTE el SQL corregido, sin explicación, sin markdown, sin comillas adicionales.
+
+CONSULTA DEL USUARIO: ${originalQuery}
+
+SQL CON ERROR:
+${failedSQL}
+
+ERROR DE DUCKDB:
+${errorMessage}
+
+SQL CORREGIDO:`
+        }]
+      });
+      const fixed = response.content[0].text.trim()
+        .replace(/^```sql\s*/i, '').replace(/```\s*$/, '').trim();
+      if (/^\s*(SELECT|WITH)\s/i.test(fixed)) {
+        return fixed;
+      }
+      return null;
+    } catch (e) {
+      console.error('fixSQL error:', e.message);
+      return null;
     }
   }
 }

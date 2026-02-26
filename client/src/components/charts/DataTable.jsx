@@ -56,7 +56,7 @@ function DataTable({ data }) {
       Balance: 'Saldo Pendiente', Saldo_Pendiente: 'Saldo Pendiente',
       // Ventas
       TotalVenta: 'Total Venta', LineTotal: 'Total Venta',
-      LineCost: 'Costo', Margen: 'Margen (%)',
+      LineCost: 'Costo', PriceBefDi: 'Precio de lista', DescuentoPct: 'Descuento (%)',
       Cantidad: 'Cantidad', NumFacturas: 'Facturas', NumClientes: 'Clientes',
       PromedioCompra: 'Promedio / Factura', Promedio: 'Promedio',
       // Fechas / días

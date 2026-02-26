@@ -619,7 +619,7 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
               />
               <YAxis tickFormatter={formatValue} tick={{ fontSize: 12 }} />
               <Tooltip formatter={formatValue} labelFormatter={formatXAxis} />
-              <Legend />
+              <Legend formatter={(value) => value.replace(/_/g, ' ')} />
               <Line
                 type="monotone"
                 dataKey={yKey}
@@ -727,7 +727,7 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
                 formatter={(value, name) => [formatValue(value), name]}
                 labelFormatter={formatMLXAxis}
               />
-              <Legend />
+              <Legend formatter={(value) => value.replace(/_/g, ' ')} />
               {seriesValues.map((seriesVal, index) => (
                 <Line
                   key={seriesVal}
@@ -841,8 +841,28 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
                 interval={0}
               />
               <YAxis tickFormatter={formatValue} tick={{ fontSize: 12 }} />
-              <Tooltip formatter={formatValue} labelFormatter={formatXAxis} />
-              <Legend />
+              <Tooltip content={({ active, payload, label }) => {
+                if (!active || !payload || !payload.length) return null;
+                const row = payload[0].payload;
+                const numericEntries = Object.entries(row).filter(
+                  ([k, v]) => k !== xKey && typeof v === 'number'
+                );
+                return (
+                  <div style={{ background: 'white', border: '1px solid #e5e7eb', borderRadius: 8,
+                                padding: '10px 14px', fontSize: 13, boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+                                minWidth: 180 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 6, color: '#111' }}>{formatXAxis(label)}</div>
+                    {numericEntries.map(([k, v]) => (
+                      <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 24,
+                                            color: '#374151', marginBottom: 2 }}>
+                        <span style={{ color: '#6b7280' }}>{k.replace(/_/g, ' ')}</span>
+                        <span style={{ fontWeight: 500 }}>{formatValue(v)}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              }} />
+              <Legend formatter={(value) => value.replace(/_/g, ' ')} />
               <Bar
                 dataKey={yKey}
                 fill="#dc2626"
@@ -879,7 +899,7 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
                 ))}
               </Pie>
               <Tooltip formatter={formatValue} />
-              <Legend />
+              <Legend formatter={(value) => value.replace(/_/g, ' ')} />
             </PieChart>
           </ResponsiveContainer>
         );
@@ -931,7 +951,7 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
               />
               <YAxis tickFormatter={formatValue} tick={{ fontSize: 12 }} />
               <Tooltip formatter={formatValue} labelFormatter={formatXAxis} />
-              <Legend />
+              <Legend formatter={(value) => value.replace(/_/g, ' ')} />
               {areaKeys.map((key, i) => (
                 <Area
                   key={key}
@@ -1031,7 +1051,7 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
               />
               {zKey && <ZAxis dataKey={zKey} range={[50, 400]} name={zKey} />}
               <Tooltip content={<ScatterTooltip />} />
-              <Legend />
+              <Legend formatter={(value) => value.replace(/_/g, ' ')} />
               <Scatter
                 name={title}
                 data={data}

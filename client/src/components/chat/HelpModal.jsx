@@ -8,6 +8,8 @@ const SECTIONS = [
     items: [
       { keyword: 'barras / barra', desc: 'Gráfico de barras — comparar categorías', example: '"Ventas por vendedor"' },
       { keyword: 'línea / tendencia', desc: 'Gráfico de línea — evolución en el tiempo', example: '"Tendencia de ventas por mes"' },
+      { keyword: 'multi-línea / por categoría', desc: 'Múltiples líneas, una por vendedor/familia/provincia', example: '"Ventas por mes separado por familia"' },
+      { keyword: 'comparar líneas / vs mes a mes', desc: 'Dos líneas en el mismo eje para comparar el mismo período en años distintos', example: '"Comparar ventas mes a mes 2024 vs 2025"' },
       { keyword: 'pastel / pie / torta', desc: 'Gráfico de pastel — distribución porcentual', example: '"Distribución de ventas por familia"' },
       { keyword: 'área', desc: 'Gráfico de área — acumulado en el tiempo', example: '"Ventas acumuladas por semana"' },
       { keyword: 'dispersión / scatter', desc: 'Gráfico de dispersión — correlación entre métricas', example: '"Dispersión de clientes por volumen vs frecuencia"' },
@@ -33,7 +35,10 @@ const SECTIONS = [
     items: [
       { keyword: 'comparar / vs / versus', desc: 'Comparación entre períodos o dimensiones', example: '"Comparar ventas 2024 vs 2025 por mes"' },
       { keyword: 'top N / mejores / peores', desc: 'Ranking de los N primeros o últimos', example: '"Top 10 clientes por ventas este año"' },
-      { keyword: 'inactivos / sin comprar en X días', desc: 'Clientes que no han comprado recientemente', example: '"Clientes inactivos más de 60 días"' },
+      { keyword: 'churn / abandono / riesgo de perder clientes', desc: 'Tarjetas de alerta con clientes en riesgo según su patrón de compra y días sin actividad', example: '"Qué clientes están en riesgo de abandono"' },
+      { keyword: 'inactivos / sin comprar en X días', desc: 'Clientes que no han comprado en un período específico', example: '"Clientes inactivos más de 60 días"' },
+      { keyword: 'ficha técnica / perfil del cliente', desc: 'Tarjeta completa con KPIs: ventas lifetime, ticket promedio, frecuencia de compra, familias top y crecimiento semestral', example: '"Dame la ficha técnica de Ferretería Martínez"' },
+      { keyword: 'clientes nuevos / primera compra', desc: 'Clientes cuya primera compra ocurrió en un período, agrupables por mes, trimestre o año', example: '"Qué clientes nuevos hubo en el Q4 del 2024"' },
       { keyword: 'proyección / proyectar', desc: 'Proyectar ventas hacia adelante', example: '"Proyecta las ventas del 2026 basado en 2025"' },
       { keyword: 'plan de visitas', desc: 'Lista de clientes prioritarios para visitar', example: '"Plan mis visitas para este mes"' },
     ],
