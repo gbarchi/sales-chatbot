@@ -71,11 +71,12 @@ DATOS DISPONIBLES:
 - Rango de fechas: ${metadata.dateRange.min} a ${metadata.dateRange.max}
 - Vendedores disponibles: ${metadata.vendedores.slice(0, 15).join(', ')}${metadata.vendedores.length > 15 ? ` ... y ${metadata.vendedores.length - 15} más` : ''}
 - Supervisores: ${metadata.supervisores.join(', ')}
-- Familias de producto (ItmsgrpName): ${metadata.grupos.join(', ')}
-- Categorías de producto: ${metadata.categorias.slice(0, 15).join(', ')}${metadata.categorias.length > 15 ? ` ... y ${metadata.categorias.length - 15} más` : ''}
+- JERARQUÍA DE PRODUCTO (de mayor a menor): Familia (ItmsgrpName) → Subfamilia (SubFamiliaName) → Categoría (Categoria) → Subcategoría (SubCategoria)
+- Nivel 1 — Familias (ItmsgrpName): ${metadata.grupos.join(', ')}
+- Nivel 2 — Subfamilias (SubFamiliaName): ${metadata.subfamilias.slice(0, 20).join(', ')}${metadata.subfamilias.length > 20 ? ` ... y ${metadata.subfamilias.length - 20} más` : ''}
+- Nivel 3 — Categorías (Categoria): ${metadata.categorias.slice(0, 15).join(', ')}${metadata.categorias.length > 15 ? ` ... y ${metadata.categorias.length - 15} más` : ''}
+- Nivel 4 — Subcategorías (SubCategoria): ${metadata.subcategorias.slice(0, 20).join(', ')}${metadata.subcategorias.length > 20 ? ` ... y ${metadata.subcategorias.length - 20} más` : ''}
 - Provincias: ${metadata.provincias.slice(0, 10).join(', ')}${metadata.provincias.length > 10 ? ` ... y ${metadata.provincias.length - 10} más` : ''}
-- Subfamilias de producto (SubFamiliaName): ${metadata.subfamilias.slice(0, 20).join(', ')}${metadata.subfamilias.length > 20 ? ` ... y ${metadata.subfamilias.length - 20} más` : ''}
-- Subcategorías de producto (SubCategoria): ${metadata.subcategorias.slice(0, 20).join(', ')}${metadata.subcategorias.length > 20 ? ` ... y ${metadata.subcategorias.length - 20} más` : ''}
 - Ciudades principales (CiudadPrincipal): ${metadata.ciudades.slice(0, 15).join(', ')}${metadata.ciudades.length > 15 ? ` ... y ${metadata.ciudades.length - 15} más` : ''}
 - Tipo de cliente (Categoria_SN): ${(metadata.categoria_sn || []).join(', ')}
 - Subtipo de cliente (SubCategoria_SN): ${(metadata.subcategoria_sn || []).slice(0, 20).join(', ')}${(metadata.subcategoria_sn || []).length > 20 ? ` ... y ${metadata.subcategoria_sn.length - 20} más` : ''}
