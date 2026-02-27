@@ -243,10 +243,16 @@ ${(userFilter?.canViewMargin !== false) ? `3. Para margen de ganancia SIEMPRE us
     ROUND((PriceBefDi - Price) / NULLIF(PriceBefDi, 0) * 100, 2) as DescuentoPct
     - PriceBefDi = precio de lista antes de descuento; Price = precio final de venta
     - Para descuento promedio por cliente/vendedor/familia: AVG(ROUND((PriceBefDi - Price) / NULLIF(PriceBefDi, 0) * 100, 2))
-    - Para comparar precio de lista vs precio de venta: SELECT ROUND(AVG(PriceBefDi), 2) as PrecioLista, ROUND(AVG(Price), 2) as PrecioVenta
+    - Para comparar precio de lista vs precio de venta: SELECT ROUND(SUM(PriceBefDi * Quantity) / NULLIF(SUM(Quantity), 0), 2) as PrecioLista, ROUND(SUM(LineTotal) / NULLIF(SUM(Quantity), 0), 2) as PrecioVenta
     - Solo incluir registros con PriceBefDi > 0 para evitar divisiones por cero
 
-18. FILTROS IMPLÍCITOS EN LENGUAJE NATURAL:
+18. PRECIO PROMEDIO: NUNCA uses AVG(Price) — da el mismo peso a una línea de 1 unidad que a una de 1000.
+    Fórmula correcta (precio de venta promedio ponderado por cantidad):
+    ROUND(SUM(LineTotal) / NULLIF(SUM(Quantity), 0), 2) AS Precio_Promedio
+    Esto calcula: ingresos totales / unidades vendidas = precio real por unidad
+    Aplica para cualquier agrupación (por categoría, vendedor, familia, producto, etc.)
+
+19. FILTROS IMPLÍCITOS EN LENGUAJE NATURAL:
     Cuando el usuario mencione productos, categorías, clientes o lugares implícitamente
     como sujeto/contexto (no como resultado a devolver), tradúcelo a cláusulas WHERE:
     - "clientes que compraron tejas" → WHERE NombreProducto ILIKE '%teja%'
