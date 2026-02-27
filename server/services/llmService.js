@@ -35,7 +35,9 @@ class LLMService {
 FILTRO DE FECHA ACTIVO:
 - El usuario ha seleccionado el período: ${dateFilter.label}
 - Por defecto, las consultas DEBEN incluir: WHERE Fecha >= '${startDate}' AND Fecha <= '${endDate}'
-- EXCEPCIÓN IMPORTANTE: Si el usuario pide COMPARAR períodos (ej: "vs año anterior", "comparar 2024 y 2025", "comparativo"), IGNORA este filtro de fecha y usa WHERE YEAR(Fecha) IN (año1, año2) para incluir ambos períodos completos
+- REGLA CRÍTICA: Aunque el historial de conversación mencione otros años (ej: 2025), SIEMPRE aplica este filtro a la consulta actual, a menos que el usuario pida EXPLÍCITAMENTE un año diferente en su mensaje actual.
+- EXCEPCIÓN 1: Si el usuario pide COMPARAR períodos (ej: "vs año anterior", "comparar 2024 y 2025", "comparativo"), IGNORA este filtro y usa WHERE YEAR(Fecha) IN (año1, año2) para incluir ambos períodos completos
+- EXCEPCIÓN 2: Si el usuario menciona un año específico en su mensaje actual (ej: "en 2025", "del 2024"), usa ese año en lugar del filtro
 - Para comparativas, usa el año del filtro activo (${new Date(dateFilter.range.start).getFullYear()}) como el año actual y el año anterior como referencia
 `;
     }
@@ -585,10 +587,10 @@ Ejemplo 1 - Rendimiento por vendedor y familia:
   "sql": "SELECT NombreVendedor as Vendedor, ItmsgrpName as Familia, SUM(LineTotal) as Ventas FROM sales GROUP BY NombreVendedor, ItmsgrpName ORDER BY Vendedor, Familia LIMIT 500",
   "chartType": "heatmap",
   "chartConfig": {
-    "xKey": "Categoria",
+    "xKey": "Familia",
     "yKey": "Vendedor",
     "valueKey": "Ventas",
-    "title": "Heatmap: Ventas por Vendedor y Categoría"
+    "title": "Heatmap: Ventas por Vendedor y Familia"
   }
 }
 IMPORTANTE para heatmaps:
@@ -596,7 +598,7 @@ IMPORTANTE para heatmaps:
 
 Ejemplo 2 - Ventas por día y mes:
 {
-  "sql": "SELECT MONTHNAME(Fecha) as Mes, DAYNAME(Fecha) as Dia, SUM(LineTotal) as Ventas FROM sales GROUP BY MONTHNAME(Fecha), DAYNAME(Fecha)",
+  "sql": "SELECT strftime('%B', Fecha) AS Mes, strftime('%A', Fecha) AS Dia, SUM(LineTotal) AS Ventas FROM sales GROUP BY strftime('%B', Fecha), strftime('%A', Fecha) ORDER BY MIN(EXTRACT(MONTH FROM Fecha)), MIN(EXTRACT(DOW FROM Fecha)) LIMIT 500",
   "chartType": "heatmap",
   "chartConfig": {
     "xKey": "Mes",
