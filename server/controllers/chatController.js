@@ -105,6 +105,36 @@ function checkMarginQueryIntent(query, canViewMargin) {
   return null;
 }
 
+// Auto-relax overly restrictive SQL when a query returns 0 rows.
+// Returns a modified SQL string, or null if no relaxation was possible.
+function relaxSQL(sql) {
+  let relaxed = sql;
+  let changed = false;
+
+  // 1. Remove filters on LEFT JOINed aliases that kill the LEFT JOIN
+  //    (e.g. AND vs.TotalVenta > 0, AND vs.Column IS NOT NULL)
+  const leftJoinAliases = [...sql.matchAll(/LEFT\s+JOIN\s+\w+\s+(\w+)\s+ON/gi)].map(m => m[1]);
+  for (const alias of leftJoinAliases) {
+    const pattern = new RegExp(`\\s+AND\\s+${alias}\\.\\w+\\s*(?:>\\s*\\d+|>=\\s*\\d+|IS\\s+NOT\\s+NULL)`, 'gi');
+    const newSQL = relaxed.replace(pattern, '');
+    if (newSQL !== relaxed) { relaxed = newSQL; changed = true; }
+  }
+
+  // 2. Remove date filters inside CTE bodies (keep outer WHERE intact)
+  //    These are often injected by the LLM but over-restrict comparison/projection queries
+  const cteMatch = relaxed.match(/^(WITH[\s\S]+?\)\s*)(SELECT[\s\S]+)$/i);
+  if (cteMatch) {
+    let ctePart = cteMatch[1];
+    const selectPart = cteMatch[2];
+    const yearFilter = /\s+AND\s+(?:YEAR\(\w+\)|EXTRACT\(YEAR\s+FROM\s+\w+\))\s*=\s*\d{4}/gi;
+    const dateRangeFilter = /\s+AND\s+\w*Fecha\w*\s*(?:>=|<=|>|<)\s*'[^']+'/gi;
+    const newCTE = ctePart.replace(yearFilter, '').replace(dateRangeFilter, '');
+    if (newCTE !== ctePart) { relaxed = newCTE + selectPart; changed = true; }
+  }
+
+  return changed ? relaxed : null;
+}
+
 // Check if SQL query attempts to access margin/cost data (forbidden for vendors and supervisors)
 function checkMarginAccess(sql, canViewMargin) {
   if (canViewMargin === true) return null; // Admin/gerente can view all data
@@ -305,17 +335,35 @@ export async function handleChat(req, res) {
           const data = queryData;
           if (clientDisconnected) break;
 
+          // Auto-relax SQL if 0 rows returned
+          if (!data || data.length === 0) {
+            const relaxedSQL = relaxSQL(querySQL);
+            if (relaxedSQL) {
+              try {
+                console.log('[RelaxSQL] Retrying multi-query with relaxed filters');
+                const relaxedData = await dataService.executeQuery(relaxedSQL);
+                if (relaxedData && relaxedData.length > 0) {
+                  data = relaxedData;
+                  querySQL = relaxedSQL;
+                  console.log(`[RelaxSQL] Multi-query success: ${relaxedData.length} rows`);
+                }
+              } catch (e) {
+                console.log('[RelaxSQL] Multi-query retry failed:', e.message);
+              }
+            }
+          }
+
           // Skip empty results - don't add to carousel if no data
           if (!data || data.length === 0) continue;
 
-          // For profile queries: override NombreVendedor with current assignment from clients table
-          // (sales history may contain old vendors; clients.csv has the current assigned vendor)
+          // For profile queries: override NombreVendedor with current assignment via SlpCode
+          // (sales history may contain old vendors; clients.SlpCode has the current assignment)
           if (queryItem.chartType === 'profile' && data.length > 0 && dataService.hasClients) {
             const cardCode = data[0].CardCode;
             if (cardCode) {
               try {
                 const vendorRows = await dataService.executeQuery(
-                  `SELECT NombreVendedor FROM clients WHERE CardCode = '${cardCode.replace(/'/g, "''")}' LIMIT 1`
+                  `SELECT DISTINCT NombreVendedor FROM sales WHERE Slpcode = (SELECT SlpCode FROM clients WHERE CardCode = '${cardCode.replace(/'/g, "''")}' LIMIT 1) LIMIT 1`
                 );
                 if (vendorRows.length > 0 && vendorRows[0].NombreVendedor) {
                   data[0].NombreVendedor = vendorRows[0].NombreVendedor;
@@ -420,6 +468,25 @@ export async function handleChat(req, res) {
     }
 
     if (clientDisconnected) return;
+
+    // Auto-relax SQL if 0 rows returned
+    if ((!data || data.length === 0) && finalSQL) {
+      const relaxedSQL = relaxSQL(finalSQL);
+      if (relaxedSQL) {
+        try {
+          console.log('[RelaxSQL] Retrying with relaxed filters');
+          const relaxedData = await dataService.executeQuery(relaxedSQL);
+          if (relaxedData && relaxedData.length > 0) {
+            data = relaxedData;
+            finalSQL = relaxedSQL;
+            console.log(`[RelaxSQL] Success: ${relaxedData.length} rows`);
+          }
+        } catch (e) {
+          console.log('[RelaxSQL] Retry failed:', e.message);
+          // Fall through to original "no data" response
+        }
+      }
+    }
 
     // If no data found, return a helpful message with the SQL so user can debug
     if (!data || data.length === 0) {

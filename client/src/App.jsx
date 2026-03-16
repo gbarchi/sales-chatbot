@@ -64,7 +64,7 @@ function App() {
           setMessages([{
             id: 1,
             type: 'bot',
-            content: `¡Hola ${user?.name || 'Usuario'}! Soy tu asistente de análisis de ventas. Tengo acceso a ${metadataData.rowCount?.toLocaleString() || 'millones de'} registros de ventas desde ${metadataData.dateRange?.min?.split('T')[0] || '2021'} hasta ${metadataData.dateRange?.max?.split('T')[0] || '2024'}.\n\n¿En qué puedo ayudarte? Puedes preguntarme cosas como:\n• "Muéstrame las ventas por mes"\n• "¿Quiénes son los top 10 vendedores?"\n• "Ventas por categoría de producto"`,
+            content: `¡Hola ${user?.name || 'Usuario'}! Soy tu asistente de análisis de ventas. Tengo acceso a ${metadataData.rowCount?.toLocaleString() || 'millones de'} registros de ventas desde ${metadataData.dateRange?.min?.split('T')[0] || '2021'} hasta ${metadataData.dateRange?.max?.split('T')[0] || '2024'}.`,
             timestamp: new Date()
           }]);
           return; // Success — exit retry loop

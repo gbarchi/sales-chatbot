@@ -129,9 +129,6 @@ class DataService {
           const hasUbicacion = cols.includes('u_ubicacion');
           const cardcodeCol = cols.includes('cardcode') ? 'cardcode' : 'CardCode';
           const cardnameCol = cols.includes('cardname') ? 'cardname' : (cols.includes('nombre') ? 'nombre' : null);
-          const ciudadCol   = cols.includes('ciudad') ? 'ciudad' : (cols.includes('city') ? 'city' : null);
-          const provinciaCol = cols.includes('provincia') ? 'provincia' : null;
-          const vendedorCol  = cols.includes('nombrevendedor') ? 'nombrevendedor' : null;
           const slpcodeCol    = cols.includes('slpcode')    ? 'SlpCode'    : null;
           const balanceCol    = cols.includes('balance')    ? 'Balance'    : null;
           const creditlineCol = cols.includes('creditline') ? 'creditline' : null;
@@ -157,9 +154,6 @@ class DataService {
               ${cardnameCol ? `CAST(${cardnameCol} AS VARCHAR)` : "NULL::VARCHAR"} AS Cardname,
               ${latExpr}                                          AS Lat,
               ${lngExpr}                                          AS Lng,
-              ${ciudadCol   ? `CAST(${ciudadCol}    AS VARCHAR)` : "NULL::VARCHAR"} AS Ciudad,
-              ${provinciaCol ? `CAST(${provinciaCol} AS VARCHAR)` : "NULL::VARCHAR"} AS Provincia,
-              ${vendedorCol  ? `CAST(${vendedorCol}  AS VARCHAR)` : "NULL::VARCHAR"} AS NombreVendedor,
               ${slpcodeCol    ? `TRY_CAST(${slpcodeCol}    AS INTEGER)` : "NULL::INTEGER"} AS SlpCode,
               ${balanceCol    ? `TRY_CAST(${balanceCol}    AS DOUBLE)`  : "NULL::DOUBLE"}  AS Balance,
               ${creditlineCol ? `CASE WHEN TRY_CAST(${creditlineCol} AS DOUBLE) < 20 THEN 0 ELSE TRY_CAST(${creditlineCol} AS DOUBLE) END` : "NULL::DOUBLE"}  AS CreditLine

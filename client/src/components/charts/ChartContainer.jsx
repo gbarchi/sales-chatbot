@@ -473,7 +473,10 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
         } else if (dataGranularity === 'daily') {
           return day.toString(); // Show just day (1-31)
         } else if (dataGranularity === 'monthly') {
-          return monthNames[month]; // Show just month (ene, feb, etc.)
+          // If data spans multiple years, include year to avoid ambiguous repeated months
+          const years = new Set(data.map(d => d[xKey]).filter(v => v).map(v => String(v).substring(0, 4)));
+          if (years.size > 1) return `${monthNames[month]} ${String(year).slice(-2)}`;
+          return monthNames[month]; // Single year: show just month
         } else if (dataGranularity === 'yearly') {
           return year.toString(); // Show just year (2025, 2026, etc.)
         } else {

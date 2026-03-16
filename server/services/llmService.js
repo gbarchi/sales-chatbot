@@ -93,10 +93,7 @@ TABLA ADICIONAL 'clients' (geolocalización y asignación de clientes desde ERP)
 - Cardname (STRING): nombre del cliente
 - Lat (DOUBLE): latitud geográfica
 - Lng (DOUBLE): longitud geográfica
-- Ciudad (STRING): ciudad del cliente
-- Provincia (STRING): provincia (puede ser NULL)
-- NombreVendedor (STRING): vendedor asignado (puede ser NULL)
-- SlpCode (INTEGER): código del vendedor asignado — mismo que sales.Slpcode. Usar para filtrar clientes de un vendedor (más preciso que filtrar por NombreVendedor en sales).
+- SlpCode (INTEGER): código del vendedor asignado actualmente — mismo que sales.Slpcode. Usar para filtrar clientes de un vendedor: c.SlpCode = (SELECT DISTINCT Slpcode FROM sales WHERE NombreVendedor = '...' LIMIT 1).
 - Balance (DOUBLE): saldo pendiente del cliente
 - CreditLine (DOUBLE): límite de crédito asignado al cliente
 
@@ -136,7 +133,7 @@ CHART TYPE 'map':
            STRING_AGG(ItmsgrpName || ': ' || COALESCE(TRY_CAST(Pct AS INTEGER), 0) || '%', ', ' ORDER BY Pct DESC) AS TopFamilias
     FROM family_pct WHERE rn <= 2 GROUP BY CardCode
   )
-  SELECT c.Cardname, c.Lat, c.Lng, c.Ciudad,
+  SELECT c.Cardname, c.Lat, c.Lng,
          COALESCE(vs.TotalVenta, 0)              AS TotalVenta,
          vs.NumFacturas,
          ROUND(vs.PromedioCompra)                AS PromedioCompra,
@@ -683,7 +680,7 @@ CRÍTICO: usa EXACTAMENTE el mismo filtro de churn (meses_activo >= 3, factor > 
 coincidan con la lista de churn. NO uses un SQL simplificado diferente.
 
 {
-  "sql": "WITH ch AS (SELECT s.CardCode, s.Cardname AS cliente, s.CiudadPrincipal AS ciudad, MAX(s.Fecha) AS ultima_compra_ts, COUNT(DISTINCT DATE_TRUNC('month', s.Fecha)) AS meses_activo, COUNT(DISTINCT s.DocNum) AS NumFacturas, DATEDIFF('day', MIN(s.Fecha), MAX(s.Fecha)) AS dias_historial, ROUND(SUM(s.LineTotal) / NULLIF(COUNT(DISTINCT DATE_TRUNC('month', s.Fecha)), 0), 0) AS PromedioCompra FROM sales s WHERE s.Fecha >= CURRENT_DATE - INTERVAL '24' MONTH [+ filtro de rol] GROUP BY s.CardCode, s.Cardname, s.CiudadPrincipal HAVING COUNT(DISTINCT DATE_TRUNC('month', s.Fecha)) >= 3 AND DATEDIFF('day', MIN(s.Fecha), MAX(s.Fecha)) > 30), ch2 AS (SELECT *, CAST(DATEDIFF('day', ultima_compra_ts::DATE, CURRENT_DATE) AS INTEGER) AS DiasSinComprar, ROUND(dias_historial::FLOAT / NULLIF(meses_activo - 1, 0), 0) AS FrecuenciaDias FROM ch), churn_risk AS (SELECT *, ROUND(DiasSinComprar::FLOAT / NULLIF(FrecuenciaDias, 0), 1) AS factor_riesgo FROM ch2 WHERE DiasSinComprar > FrecuenciaDias * 1.5 AND DiasSinComprar <= 365), family_pct AS (SELECT CardCode, ItmsgrpName, ROUND(100.0 * SUM(LineTotal) / NULLIF(SUM(SUM(LineTotal)) OVER (PARTITION BY CardCode), 0)) AS Pct, ROW_NUMBER() OVER (PARTITION BY CardCode ORDER BY SUM(LineTotal) DESC) AS rn FROM sales GROUP BY CardCode, ItmsgrpName), top_families AS (SELECT CardCode, STRING_AGG(ItmsgrpName || ': ' || COALESCE(TRY_CAST(Pct AS INTEGER), 0) || '%', ', ' ORDER BY Pct DESC) AS TopFamilias FROM family_pct WHERE rn <= 2 GROUP BY CardCode) SELECT COALESCE(c.Cardname, cr.cliente) AS Cardname, c.Lat, c.Lng, COALESCE(c.Ciudad, cr.ciudad) AS Ciudad, cr.PromedioCompra, cr.NumFacturas, cr.DiasSinComprar, cr.FrecuenciaDias, cr.factor_riesgo, CASE WHEN cr.FrecuenciaDias IS NOT NULL THEN ROUND(cr.FrecuenciaDias) - cr.DiasSinComprar ELSE NULL END AS DiasHastaCompra, tf.TopFamilias, c.Balance, c.CreditLine FROM churn_risk cr LEFT JOIN clients c ON c.CardCode = cr.CardCode LEFT JOIN top_families tf ON tf.CardCode = cr.CardCode ORDER BY cr.factor_riesgo DESC LIMIT 200",
+  "sql": "WITH ch AS (SELECT s.CardCode, s.Cardname AS cliente, s.CiudadPrincipal AS ciudad, MAX(s.Fecha) AS ultima_compra_ts, COUNT(DISTINCT DATE_TRUNC('month', s.Fecha)) AS meses_activo, COUNT(DISTINCT s.DocNum) AS NumFacturas, DATEDIFF('day', MIN(s.Fecha), MAX(s.Fecha)) AS dias_historial, ROUND(SUM(s.LineTotal) / NULLIF(COUNT(DISTINCT DATE_TRUNC('month', s.Fecha)), 0), 0) AS PromedioCompra FROM sales s WHERE s.Fecha >= CURRENT_DATE - INTERVAL '24' MONTH [+ filtro de rol] GROUP BY s.CardCode, s.Cardname, s.CiudadPrincipal HAVING COUNT(DISTINCT DATE_TRUNC('month', s.Fecha)) >= 3 AND DATEDIFF('day', MIN(s.Fecha), MAX(s.Fecha)) > 30), ch2 AS (SELECT *, CAST(DATEDIFF('day', ultima_compra_ts::DATE, CURRENT_DATE) AS INTEGER) AS DiasSinComprar, ROUND(dias_historial::FLOAT / NULLIF(meses_activo - 1, 0), 0) AS FrecuenciaDias FROM ch), churn_risk AS (SELECT *, ROUND(DiasSinComprar::FLOAT / NULLIF(FrecuenciaDias, 0), 1) AS factor_riesgo FROM ch2 WHERE DiasSinComprar > FrecuenciaDias * 1.5 AND DiasSinComprar <= 365), family_pct AS (SELECT CardCode, ItmsgrpName, ROUND(100.0 * SUM(LineTotal) / NULLIF(SUM(SUM(LineTotal)) OVER (PARTITION BY CardCode), 0)) AS Pct, ROW_NUMBER() OVER (PARTITION BY CardCode ORDER BY SUM(LineTotal) DESC) AS rn FROM sales GROUP BY CardCode, ItmsgrpName), top_families AS (SELECT CardCode, STRING_AGG(ItmsgrpName || ': ' || COALESCE(TRY_CAST(Pct AS INTEGER), 0) || '%', ', ' ORDER BY Pct DESC) AS TopFamilias FROM family_pct WHERE rn <= 2 GROUP BY CardCode) SELECT COALESCE(c.Cardname, cr.cliente) AS Cardname, c.Lat, c.Lng, cr.ciudad AS Ciudad, cr.PromedioCompra, cr.NumFacturas, cr.DiasSinComprar, cr.FrecuenciaDias, cr.factor_riesgo, CASE WHEN cr.FrecuenciaDias IS NOT NULL THEN ROUND(cr.FrecuenciaDias) - cr.DiasSinComprar ELSE NULL END AS DiasHastaCompra, tf.TopFamilias, c.Balance, c.CreditLine FROM churn_risk cr LEFT JOIN clients c ON c.CardCode = cr.CardCode LEFT JOIN top_families tf ON tf.CardCode = cr.CardCode ORDER BY cr.factor_riesgo DESC LIMIT 200",
   "chartType": "map",
   "chartConfig": { "latKey": "Lat", "lngKey": "Lng", "labelKey": "Cardname", "valueKey": "PromedioCompra", "title": "Clientes en riesgo de abandono — Mapa" }
 }
@@ -868,10 +865,8 @@ AMPLIACIÓN cuando canViewMargin === true: añadir estas CTEs y columnas al SELE
 -- Añadir al SELECT: m.MargenLifetime, mr.MargenReciente6M, m12.MargenUltimos12M, mm.MargenUltimoMes
 
 AMPLIACIÓN cuando hasClients === true: añadir LEFT JOIN y columnas al SELECT final.
-⚠️ IMPORTANTE: el vendedor ACTUAL del cliente está en clients.NombreVendedor (más preciso que
-sales.NombreVendedor, que refleja quién atendió cada transacción histórica — puede ser un ex-vendedor).
-Cuando uses LEFT JOIN clients c, reemplaza 'b.*' por una lista explícita de columnas y usa COALESCE:
-  b.Cardname, b.CardCode, COALESCE(c.NombreVendedor, b.NombreVendedor) AS NombreVendedor,
+Cuando uses LEFT JOIN clients c, reemplaza 'b.*' por una lista explícita de columnas:
+  b.Cardname, b.CardCode, b.NombreVendedor,
   b.CiudadPrincipal, b.ProvinciaPrincipal, b.TipoCliente, b.NumFacturas, b.VentaTotal,
   b.TicketPromedio, b.PrimeraCompra, b.UltimaCompra, b.DiasSinCompra
 LEFT JOIN clients c ON b.CardCode = c.CardCode
@@ -892,7 +887,7 @@ EJEMPLO completo de respuesta (admin con hasClients):
   "multiple": true,
   "queries": [
     {
-      "sql": "WITH docs AS (SELECT DocNum, MIN(Fecha) AS Fecha FROM sales WHERE Cardname ILIKE '%Martínez%' GROUP BY DocNum), gaps AS (SELECT ROUND(AVG(gap), 0) AS FrecuenciaPromDias FROM (SELECT DATEDIFF('day', LAG(Fecha) OVER (ORDER BY Fecha), Fecha) AS gap FROM docs) g WHERE gap IS NOT NULL), base AS (SELECT ANY_VALUE(Cardname) AS Cardname, ANY_VALUE(CardCode) AS CardCode, ANY_VALUE(NombreVendedor) AS NombreVendedor, ANY_VALUE(CiudadPrincipal) AS CiudadPrincipal, ANY_VALUE(ProvinciaPrincipal) AS ProvinciaPrincipal, ANY_VALUE(Categoria_SN) AS TipoCliente, COUNT(DISTINCT DocNum) AS NumFacturas, ROUND(SUM(LineTotal), 2) AS VentaTotal, ROUND(SUM(LineTotal) / NULLIF(COUNT(DISTINCT DocNum), 0), 2) AS TicketPromedio, MIN(Fecha)::VARCHAR AS PrimeraCompra, MAX(Fecha)::VARCHAR AS UltimaCompra, CAST(DATEDIFF('day', MAX(Fecha)::DATE, CURRENT_DATE) AS INTEGER) AS DiasSinCompra FROM sales WHERE Cardname ILIKE '%Martínez%'), recent AS (SELECT COUNT(DISTINCT DocNum) AS FacturasRecientes, ROUND(SUM(LineTotal), 2) AS VentaReciente6M, ROUND(SUM(LineTotal) / NULLIF(COUNT(DISTINCT DocNum), 0), 2) AS TicketReciente FROM sales WHERE Cardname ILIKE '%Martínez%' AND Fecha >= CURRENT_DATE - INTERVAL '6 months'), familias AS (SELECT STRING_AGG(Familia || ' (' || ROUND(pct, 0) || '%)', ' | ' ORDER BY pct DESC) AS TopFamilias FROM (SELECT ItmsgrpName AS Familia, ROUND(SUM(LineTotal) * 100.0 / SUM(SUM(LineTotal)) OVER (), 1) AS pct FROM sales WHERE Cardname ILIKE '%Martínez%' GROUP BY ItmsgrpName ORDER BY SUM(LineTotal) DESC LIMIT 3) t), tendencia AS (SELECT ROUND(SUM(CASE WHEN Fecha >= CURRENT_DATE - INTERVAL '6 months' THEN LineTotal ELSE 0 END), 2) AS Venta6M_Actual, ROUND(SUM(CASE WHEN Fecha >= CURRENT_DATE - INTERVAL '12 months' AND Fecha < CURRENT_DATE - INTERVAL '6 months' THEN LineTotal ELSE 0 END), 2) AS Venta6M_Anterior FROM sales WHERE Cardname ILIKE '%Martínez%'), items AS (SELECT COUNT(DISTINCT CASE WHEN Fecha >= CURRENT_DATE - INTERVAL '6 months' THEN ItemCode END) AS ItemsUnicos6M, COUNT(DISTINCT CASE WHEN Fecha >= CURRENT_DATE - INTERVAL '12 months' AND Fecha < CURRENT_DATE - INTERVAL '6 months' THEN ItemCode END) AS ItemsUnicos6M_Anterior, COUNT(DISTINCT ItemCode) AS ItemsUnicosTotal FROM sales WHERE Cardname ILIKE '%Martínez%'), margin AS (SELECT ROUND((SUM(LineTotal) - SUM(LineCost)) / NULLIF(SUM(LineTotal), 0) * 100, 2) AS MargenLifetime FROM sales WHERE Cardname ILIKE '%Martínez%' AND LineTotal > 0), margin_recent AS (SELECT ROUND((SUM(LineTotal) - SUM(LineCost)) / NULLIF(SUM(LineTotal), 0) * 100, 2) AS MargenReciente6M FROM sales WHERE Cardname ILIKE '%Martínez%' AND Fecha >= CURRENT_DATE - INTERVAL '6 months' AND LineTotal > 0), margin_12m AS (SELECT ROUND((SUM(LineTotal) - SUM(LineCost)) / NULLIF(SUM(LineTotal), 0) * 100, 2) AS MargenUltimos12M FROM sales WHERE Cardname ILIKE '%Martínez%' AND Fecha >= CURRENT_DATE - INTERVAL '12 months' AND LineTotal > 0), margin_month AS (SELECT ROUND((SUM(LineTotal) - SUM(LineCost)) / NULLIF(SUM(LineTotal), 0) * 100, 2) AS MargenUltimoMes FROM sales WHERE Cardname ILIKE '%Martínez%' AND DATE_TRUNC('month', Fecha) = DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month') AND LineTotal > 0) SELECT b.Cardname, b.CardCode, COALESCE(c.NombreVendedor, b.NombreVendedor) AS NombreVendedor, b.CiudadPrincipal, b.ProvinciaPrincipal, b.TipoCliente, b.NumFacturas, b.VentaTotal, b.TicketPromedio, b.PrimeraCompra, b.UltimaCompra, b.DiasSinCompra, g.FrecuenciaPromDias, r.FacturasRecientes, r.VentaReciente6M, r.TicketReciente, f.TopFamilias, CASE WHEN t.Venta6M_Anterior > 0 THEN ROUND((t.Venta6M_Actual - t.Venta6M_Anterior) / t.Venta6M_Anterior * 100, 1) ELSE NULL END AS CrecimientoSemestral, it.ItemsUnicos6M, it.ItemsUnicos6M_Anterior, it.ItemsUnicosTotal, m.MargenLifetime, mr.MargenReciente6M, m12.MargenUltimos12M, mm.MargenUltimoMes, c.Balance, c.CreditLine FROM base b CROSS JOIN gaps g CROSS JOIN recent r CROSS JOIN familias f CROSS JOIN tendencia t CROSS JOIN items it CROSS JOIN margin m CROSS JOIN margin_recent mr CROSS JOIN margin_12m m12 CROSS JOIN margin_month mm LEFT JOIN clients c ON b.CardCode = c.CardCode LIMIT 1",
+      "sql": "WITH docs AS (SELECT DocNum, MIN(Fecha) AS Fecha FROM sales WHERE Cardname ILIKE '%Martínez%' GROUP BY DocNum), gaps AS (SELECT ROUND(AVG(gap), 0) AS FrecuenciaPromDias FROM (SELECT DATEDIFF('day', LAG(Fecha) OVER (ORDER BY Fecha), Fecha) AS gap FROM docs) g WHERE gap IS NOT NULL), base AS (SELECT ANY_VALUE(Cardname) AS Cardname, ANY_VALUE(CardCode) AS CardCode, ANY_VALUE(NombreVendedor) AS NombreVendedor, ANY_VALUE(CiudadPrincipal) AS CiudadPrincipal, ANY_VALUE(ProvinciaPrincipal) AS ProvinciaPrincipal, ANY_VALUE(Categoria_SN) AS TipoCliente, COUNT(DISTINCT DocNum) AS NumFacturas, ROUND(SUM(LineTotal), 2) AS VentaTotal, ROUND(SUM(LineTotal) / NULLIF(COUNT(DISTINCT DocNum), 0), 2) AS TicketPromedio, MIN(Fecha)::VARCHAR AS PrimeraCompra, MAX(Fecha)::VARCHAR AS UltimaCompra, CAST(DATEDIFF('day', MAX(Fecha)::DATE, CURRENT_DATE) AS INTEGER) AS DiasSinCompra FROM sales WHERE Cardname ILIKE '%Martínez%'), recent AS (SELECT COUNT(DISTINCT DocNum) AS FacturasRecientes, ROUND(SUM(LineTotal), 2) AS VentaReciente6M, ROUND(SUM(LineTotal) / NULLIF(COUNT(DISTINCT DocNum), 0), 2) AS TicketReciente FROM sales WHERE Cardname ILIKE '%Martínez%' AND Fecha >= CURRENT_DATE - INTERVAL '6 months'), familias AS (SELECT STRING_AGG(Familia || ' (' || ROUND(pct, 0) || '%)', ' | ' ORDER BY pct DESC) AS TopFamilias FROM (SELECT ItmsgrpName AS Familia, ROUND(SUM(LineTotal) * 100.0 / SUM(SUM(LineTotal)) OVER (), 1) AS pct FROM sales WHERE Cardname ILIKE '%Martínez%' GROUP BY ItmsgrpName ORDER BY SUM(LineTotal) DESC LIMIT 3) t), tendencia AS (SELECT ROUND(SUM(CASE WHEN Fecha >= CURRENT_DATE - INTERVAL '6 months' THEN LineTotal ELSE 0 END), 2) AS Venta6M_Actual, ROUND(SUM(CASE WHEN Fecha >= CURRENT_DATE - INTERVAL '12 months' AND Fecha < CURRENT_DATE - INTERVAL '6 months' THEN LineTotal ELSE 0 END), 2) AS Venta6M_Anterior FROM sales WHERE Cardname ILIKE '%Martínez%'), items AS (SELECT COUNT(DISTINCT CASE WHEN Fecha >= CURRENT_DATE - INTERVAL '6 months' THEN ItemCode END) AS ItemsUnicos6M, COUNT(DISTINCT CASE WHEN Fecha >= CURRENT_DATE - INTERVAL '12 months' AND Fecha < CURRENT_DATE - INTERVAL '6 months' THEN ItemCode END) AS ItemsUnicos6M_Anterior, COUNT(DISTINCT ItemCode) AS ItemsUnicosTotal FROM sales WHERE Cardname ILIKE '%Martínez%'), margin AS (SELECT ROUND((SUM(LineTotal) - SUM(LineCost)) / NULLIF(SUM(LineTotal), 0) * 100, 2) AS MargenLifetime FROM sales WHERE Cardname ILIKE '%Martínez%' AND LineTotal > 0), margin_recent AS (SELECT ROUND((SUM(LineTotal) - SUM(LineCost)) / NULLIF(SUM(LineTotal), 0) * 100, 2) AS MargenReciente6M FROM sales WHERE Cardname ILIKE '%Martínez%' AND Fecha >= CURRENT_DATE - INTERVAL '6 months' AND LineTotal > 0), margin_12m AS (SELECT ROUND((SUM(LineTotal) - SUM(LineCost)) / NULLIF(SUM(LineTotal), 0) * 100, 2) AS MargenUltimos12M FROM sales WHERE Cardname ILIKE '%Martínez%' AND Fecha >= CURRENT_DATE - INTERVAL '12 months' AND LineTotal > 0), margin_month AS (SELECT ROUND((SUM(LineTotal) - SUM(LineCost)) / NULLIF(SUM(LineTotal), 0) * 100, 2) AS MargenUltimoMes FROM sales WHERE Cardname ILIKE '%Martínez%' AND DATE_TRUNC('month', Fecha) = DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month') AND LineTotal > 0) SELECT b.Cardname, b.CardCode, b.NombreVendedor, b.CiudadPrincipal, b.ProvinciaPrincipal, b.TipoCliente, b.NumFacturas, b.VentaTotal, b.TicketPromedio, b.PrimeraCompra, b.UltimaCompra, b.DiasSinCompra, g.FrecuenciaPromDias, r.FacturasRecientes, r.VentaReciente6M, r.TicketReciente, f.TopFamilias, CASE WHEN t.Venta6M_Anterior > 0 THEN ROUND((t.Venta6M_Actual - t.Venta6M_Anterior) / t.Venta6M_Anterior * 100, 1) ELSE NULL END AS CrecimientoSemestral, it.ItemsUnicos6M, it.ItemsUnicos6M_Anterior, it.ItemsUnicosTotal, m.MargenLifetime, mr.MargenReciente6M, m12.MargenUltimos12M, mm.MargenUltimoMes, c.Balance, c.CreditLine FROM base b CROSS JOIN gaps g CROSS JOIN recent r CROSS JOIN familias f CROSS JOIN tendencia t CROSS JOIN items it CROSS JOIN margin m CROSS JOIN margin_recent mr CROSS JOIN margin_12m m12 CROSS JOIN margin_month mm LEFT JOIN clients c ON b.CardCode = c.CardCode LIMIT 1",
       "chartType": "profile",
       "chartConfig": { "nameKey": "Cardname", "title": "Ficha Técnica: Ferretería Martínez" },
       "explanation": "Perfil completo del cliente Ferretería Martínez"
@@ -941,6 +936,46 @@ CONTEXTO DE CONVERSACIÓN:
 - CRÍTICO: Si el usuario dice "ambas familias", "las dos familias", "ambos", "los mismos", "esas categorías", "igual pero...", "sí, compara", "de las dos", "de esas dos", etc. — revisa el historial y extrae TODOS los elementos mencionados anteriormente. NO asumas solo uno.
   Ejemplo: si el historial menciona "Iluminación" y "Material Eléctrico" (en mensajes del usuario O en títulos de consultas anteriores del asistente), incluye AMBOS en el WHERE del SQL nuevo con ItmsgrpName IN ('Iluminación', 'Material Eléctrico').
   NUNCA generes una consulta que filtre por solo una de las familias cuando el usuario dijo "ambas" o se refirió implícitamente a más de una.`;
+  }
+
+  /**
+   * Returns the system prompt as an array of content blocks for prompt caching.
+   * Block 1 (static): SQL rules, chart types, examples — cached via cache_control.
+   * Block 2 (dynamic): Date filter, role filter, schema, metadata — varies per request.
+   */
+  getSystemPromptBlocks(metadata, dateFilter = null, userFilter = null, resolvedEntities = []) {
+    const fullPrompt = this.getSystemPrompt(metadata, dateFilter, userFilter, resolvedEntities);
+
+    // Split at the "REGLAS SQL PARA DuckDB:" boundary
+    // Everything from this marker onwards is static (varies only by canViewMargin/hasClients)
+    const splitMarker = 'REGLAS SQL PARA DuckDB:';
+    const splitIndex = fullPrompt.indexOf(splitMarker);
+
+    if (splitIndex === -1) {
+      // Fallback: no caching if marker not found
+      return [{ type: 'text', text: fullPrompt }];
+    }
+
+    // Static block: intro line + all rules/examples (from marker to end)
+    // We prepend the intro so the LLM gets role context first
+    const intro = 'Eres un asistente experto en análisis de ventas. Tu trabajo es convertir preguntas en lenguaje natural sobre datos de ventas en consultas SQL válidas para DuckDB, y recomendar el tipo de visualización más apropiado.';
+    const staticContent = fullPrompt.substring(splitIndex);
+
+    // Dynamic block: everything between intro and the split marker (schema, metadata, filters, etc.)
+    const afterIntro = fullPrompt.indexOf('\n', fullPrompt.indexOf(intro) + intro.length);
+    const dynamicContent = fullPrompt.substring(afterIntro, splitIndex).trim();
+
+    return [
+      {
+        type: 'text',
+        text: `${intro}\n\n${staticContent}`,
+        cache_control: { type: 'ephemeral' }
+      },
+      {
+        type: 'text',
+        text: dynamicContent
+      }
+    ];
   }
 
   async analyzeResults(userQuery, data, chartConfig) {
@@ -1203,8 +1238,15 @@ Ejemplo: ["Top 5 clientes de esta categoría", "Comparar con el mes anterior", "
         model: this.model,
         max_tokens: 3000,
         messages: messages,
-        system: this.getSystemPrompt(metadata, dateFilter, userFilter, resolvedEntities)
+        system: this.getSystemPromptBlocks(metadata, dateFilter, userFilter, resolvedEntities)
       });
+
+      // Log prompt cache usage
+      if (response.usage) {
+        const cacheRead = response.usage.cache_read_input_tokens || 0;
+        const cacheCreate = response.usage.cache_creation_input_tokens || 0;
+        console.log(`[Cache] input=${response.usage.input_tokens}, cache_read=${cacheRead}, cache_creation=${cacheCreate}`);
+      }
 
       const content = response.content[0].text;
 
