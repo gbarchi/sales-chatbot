@@ -28,6 +28,8 @@ npm-debug.log*
 
 # SQLite databases (user data)
 server/data/*.db
+server/users.db
+server/*.db
 
 # Data files (too large for git)
 # Full CSV excluded, only sample included
