@@ -6,3 +6,9 @@ npm-debug.log
 Dockerfile
 .dockerignore
 *.md
+# Don't bake the local SQLite DB (contains password hashes) into the image —
+# a fresh DB is created in the persistent volume on first run.
+data
+*.db
+*.db-journal
+*.db-wal

@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { userService } from './userService.js';
+import { renderMetricsForPrompt } from './metrics.js';
 
 class LLMService {
   constructor() {
@@ -82,6 +83,8 @@ DATOS DISPONIBLES:
 - Subtipo de cliente (SubCategoria_SN): ${(metadata.subcategoria_sn || []).slice(0, 20).join(', ')}${(metadata.subcategoria_sn || []).length > 20 ? ` ... y ${metadata.subcategoria_sn.length - 20} más` : ''}
 - Total de registros: ${metadata.rowCount.toLocaleString()}
 - MONEDA: Todos los valores monetarios están en DÓLARES ($). Usa $ en reportes y análisis, NUNCA €
+
+${renderMetricsForPrompt(userFilter?.canViewMargin !== false)}
 
 ${metadata.holidays && metadata.holidays.length > 0 ? `FERIADOS NACIONALES ECUADOR (fechas oficiales incluyendo puentes movidos):
 ${metadata.holidays.map(h => `${h.date}: ${h.name}`).join('\n')}

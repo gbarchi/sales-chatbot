@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AskJaime — Documentación de la aplicación</title>
+<style>
+  :root{
+    --azul:#1f3a5f; --azul2:#2c5282; --acento:#e07b39; --verde:#2f855a;
+    --gris:#4a5568; --gris-cl:#edf2f7; --borde:#cbd5e0; --bg:#f7fafc;
+    --texto:#1a202c;
+  }
+  *{box-sizing:border-box}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:var(--texto); background:var(--bg); margin:0; line-height:1.6;
+  }
+  .wrap{max-width:960px; margin:0 auto; padding:0 24px 80px}
+  header.hero{
+    background:linear-gradient(135deg,var(--azul) 0%,var(--azul2) 100%);
+    color:#fff; padding:56px 24px 44px; text-align:center;
+  }
+  header.hero h1{margin:0 0 8px; font-size:2.6rem; letter-spacing:-.5px}
+  header.hero .sub{opacity:.9; font-size:1.15rem; margin:0}
+  header.hero .meta{opacity:.7; font-size:.85rem; margin-top:18px}
+  h2{
+    color:var(--azul); border-bottom:3px solid var(--acento);
+    padding-bottom:6px; margin-top:52px; font-size:1.6rem;
+  }
+  h3{color:var(--azul2); margin-top:32px; font-size:1.2rem}
+  p{margin:12px 0}
+  code{background:var(--gris-cl); padding:2px 6px; border-radius:4px; font-size:.9em; font-family:"SF Mono",Menlo,Consolas,monospace}
+  pre{background:#1a202c; color:#e2e8f0; padding:16px; border-radius:8px; overflow-x:auto; font-size:.85rem; line-height:1.5}
+  pre code{background:none; padding:0; color:inherit}
+  table{width:100%; border-collapse:collapse; margin:18px 0; font-size:.92rem; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.08); border-radius:8px; overflow:hidden}
+  th{background:var(--azul); color:#fff; text-align:left; padding:10px 14px; font-weight:600}
+  td{padding:10px 14px; border-top:1px solid var(--borde); vertical-align:top}
+  tr:nth-child(even) td{background:#fafbfc}
+  .card{background:#fff; border:1px solid var(--borde); border-radius:10px; padding:20px 24px; margin:18px 0; box-shadow:0 1px 3px rgba(0,0,0,.05)}
+  .grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:16px; margin:18px 0}
+  .pill{display:inline-block; background:var(--gris-cl); color:var(--gris); border-radius:20px; padding:4px 12px; font-size:.82rem; margin:3px 4px 3px 0; font-weight:500}
+  .pill.on{background:#e6fffa; color:#234e52}
+  .note{background:#fffaf0; border-left:4px solid var(--acento); padding:12px 18px; border-radius:0 8px 8px 0; margin:16px 0; font-size:.92rem}
+  .toc{background:#fff; border:1px solid var(--borde); border-radius:10px; padding:18px 26px; margin:28px 0}
+  .toc ol{margin:6px 0; padding-left:20px}
+  .toc a{color:var(--azul2); text-decoration:none}
+  .toc a:hover{text-decoration:underline}
+  figure{margin:24px 0; text-align:center}
+  figcaption{font-size:.85rem; color:var(--gris); margin-top:8px}
+  svg{max-width:100%; height:auto}
+  .footer{text-align:center; color:var(--gris); font-size:.85rem; margin-top:60px; padding-top:24px; border-top:1px solid var(--borde)}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <h1>AskJaime</h1>
+  <p class="sub">Chatbot de analítica de ventas para MAVIJU — lenguaje natural a SQL sobre datos de facturación</p>
+  <p class="meta">Documentación técnica y funcional · Generada el 15 de julio de 2026</p>
+</header>
+
+<div class="wrap">
+
+<nav class="toc">
+  <strong>Contenido</strong>
+  <ol>
+    <li><a href="#que-es">¿Qué es la aplicación?</a></li>
+    <li><a href="#stack">¿En qué está desarrollada? (Stack tecnológico)</a></li>
+    <li><a href="#arquitectura">Arquitectura y unidades desplegables</a></li>
+    <li><a href="#conexiones">¿Con qué se conecta?</a></li>
+    <li><a href="#datos">Datos y modelo de información</a></li>
+    <li><a href="#flujo">Ciclo de vida de una consulta (NL → SQL → gráfico)</a></li>
+    <li><a href="#usuarios">Usuarios, roles y permisos</a></li>
+    <li><a href="#funciones">¿Qué hace la aplicación? (Funcionalidades)</a></li>
+    <li><a href="#despliegue">Despliegue e infraestructura</a></li>
+  </ol>
+</nav>
+
+<!-- 1 -->
+<h2 id="que-es">1. ¿Qué es la aplicación?</h2>
+<p>
+  <strong>AskJaime</strong> (internamente <em>Maviju Salesbot</em>) es un <strong>chatbot de analítica de ventas</strong>
+  impulsado por IA. Permite que cualquier usuario del área comercial de <strong>MAVIJU</strong> pregunte en
+  lenguaje natural —en español— sobre los datos de ventas, y recibe como respuesta una <strong>tabla, un gráfico
+  interactivo y una explicación</strong> redactada por el modelo.
+</p>
+<p>
+  El corazón del sistema traduce la pregunta del usuario a <strong>SQL</strong> mediante el modelo <strong>Claude</strong>,
+  la ejecuta contra una base analítica <strong>DuckDB</strong> cargada desde el CSV de facturación de la empresa,
+  y decide automáticamente el tipo de visualización más adecuado. Todo respeta el <strong>alcance por rol</strong>
+  (un vendedor solo ve sus datos) y las <strong>restricciones de margen</strong> (solo gerencia ve rentabilidad).
+</p>
+
+<div class="grid">
+  <div class="card"><h3 style="margin-top:0">🎯 Objetivo</h3>Responder "¿cuánto vendí?", "¿quién es mi mejor cliente?", "¿cómo va la categoría X?" sin saber SQL ni abrir un dashboard.</div>
+  <div class="card"><h3 style="margin-top:0">👥 Para quién</h3>Administradores, gerencia, supervisores de ventas y vendedores (FFVV).</div>
+  <div class="card"><h3 style="margin-top:0">⚙️ Cómo</h3>Pregunta en español → Claude genera SQL → DuckDB ejecuta → gráfico + análisis, con filtros por rol.</div>
+</div>
+
+<!-- 2 -->
+<h2 id="stack">2. ¿En qué está desarrollada?</h2>
+<p>Aplicación <strong>full-stack JavaScript</strong> en dos unidades (backend Node.js + frontend React), con dos motores de base de datos y la API de Claude como cerebro.</p>
+
+<table>
+  <tr><th>Capa</th><th>Tecnología</th><th>Versión</th></tr>
+  <tr><td>Frontend (SPA)</td><td>React + Recharts + @nivo/heatmap + react-leaflet</td><td>React 18 · Recharts 2 · Nivo 0.99 · Leaflet 1.9</td></tr>
+  <tr><td>Backend / API</td><td>Node.js (ESM) + Express</td><td>Express 4 · Node ≥ 18</td></tr>
+  <tr><td>Base analítica</td><td>DuckDB (en memoria, cargada desde CSV)</td><td>duckdb 1.0</td></tr>
+  <tr><td>Base de usuarios</td><td>SQLite vía <code>better-sqlite3</code></td><td>better-sqlite3 12</td></tr>
+  <tr><td>IA / LLM</td><td>Claude vía <code>@anthropic-ai/sdk</code></td><td>SDK 0.27 · modelo <code>claude-haiku-4-5</code></td></tr>
+  <tr><td>Autenticación</td><td>JWT (<code>jsonwebtoken</code>) + <code>bcryptjs</code> + cookies</td><td>—</td></tr>
+  <tr><td>Orquestación</td><td>Docker Compose (server + client + nginx)</td><td>—</td></tr>
+</table>
+
+<div class="grid">
+  <div class="card"><h3 style="margin-top:0">client/</h3>React 18 (Create React App). Panel de chat, contenedor de gráficos con ~18 tipos, panel de admin, modales de historial/favoritos/ayuda.</div>
+  <div class="card"><h3 style="margin-top:0">server/</h3>Express (ESM). Controladores de chat, auth, historial, favoritos y feedback; servicios de datos, LLM, resolución de entidades y usuarios.</div>
+  <div class="card"><h3 style="margin-top:0">IA</h3>Claude Haiku 4.5 genera el SQL y redacta el análisis en español. La API key y el modelo son configurables desde el panel de admin.</div>
+</div>
+
+<!-- 3 -->
+<h2 id="arquitectura">3. Arquitectura y unidades desplegables</h2>
+<p>El backend mantiene dos bases separadas: <strong>DuckDB</strong> (datos de ventas, solo lectura, en memoria) para la analítica y <strong>SQLite</strong> para usuarios, historial, favoritos, logs y feedback.</p>
+
+<figure>
+<svg viewBox="0 0 820 430" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="13">
+  <!-- CSV -->
+  <rect x="30" y="30" width="150" height="70" rx="10" fill="#718096"/>
+  <text x="105" y="60" fill="#fff" text-anchor="middle" font-weight="bold">CSV de ventas</text>
+  <text x="105" y="80" fill="#e2e8f0" text-anchor="middle" font-size="11">~710 MB · facturación</text>
+
+  <!-- WEB -->
+  <rect x="30" y="180" width="150" height="90" rx="10" fill="#2c5282"/>
+  <text x="105" y="215" fill="#fff" text-anchor="middle" font-weight="bold">client (React)</text>
+  <text x="105" y="235" fill="#cbd5e0" text-anchor="middle" font-size="11">SPA · nginx :8080</text>
+  <text x="105" y="251" fill="#cbd5e0" text-anchor="middle" font-size="11">chat + gráficos</text>
+
+  <!-- API -->
+  <rect x="290" y="180" width="170" height="90" rx="10" fill="#1f3a5f"/>
+  <text x="375" y="212" fill="#fff" text-anchor="middle" font-weight="bold">server (Express)</text>
+  <text x="375" y="232" fill="#cbd5e0" text-anchor="middle" font-size="11">JWT + rate limit</text>
+  <text x="375" y="248" fill="#cbd5e0" text-anchor="middle" font-size="11">REST :3001</text>
+
+  <!-- DuckDB -->
+  <rect x="300" y="40" width="150" height="70" rx="10" fill="#2f855a"/>
+  <text x="375" y="70" fill="#fff" text-anchor="middle" font-weight="bold">DuckDB</text>
+  <text x="375" y="90" fill="#e6fffa" text-anchor="middle" font-size="11">sales (en memoria)</text>
+
+  <!-- SQLite -->
+  <rect x="300" y="330" width="150" height="70" rx="10" fill="#2f855a"/>
+  <text x="375" y="360" fill="#fff" text-anchor="middle" font-weight="bold">SQLite</text>
+  <text x="375" y="380" fill="#e6fffa" text-anchor="middle" font-size="11">users, history…</text>
+
+  <!-- Claude -->
+  <rect x="580" y="180" width="200" height="90" rx="10" fill="#e07b39"/>
+  <text x="680" y="212" fill="#fff" text-anchor="middle" font-weight="bold">Claude API</text>
+  <text x="680" y="232" fill="#fff5ee" text-anchor="middle" font-size="11">NL → SQL</text>
+  <text x="680" y="248" fill="#fff5ee" text-anchor="middle" font-size="11">+ análisis en español</text>
+
+  <!-- arrows -->
+  <defs><marker id="a" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#4a5568"/></marker></defs>
+  <line x1="105" y1="100" x2="105" y2="176" stroke="#4a5568" stroke-width="2" marker-end="url(#a)"/>
+  <text x="112" y="140" fill="#4a5568" font-size="10" text-anchor="start">carga inicial</text>
+  <line x1="180" y1="225" x2="286" y2="225" stroke="#4a5568" stroke-width="2" marker-end="url(#a)"/>
+  <line x1="286" y1="235" x2="184" y2="235" stroke="#4a5568" stroke-width="2" marker-end="url(#a)"/>
+  <line x1="375" y1="180" x2="375" y2="114" stroke="#4a5568" stroke-width="2" marker-end="url(#a)"/>
+  <line x1="375" y1="270" x2="375" y2="326" stroke="#4a5568" stroke-width="2" marker-end="url(#a)"/>
+  <line x1="460" y1="225" x2="576" y2="225" stroke="#4a5568" stroke-width="2" marker-end="url(#a)"/>
+  <line x1="576" y1="248" x2="462" y2="255" stroke="#4a5568" stroke-width="2" marker-end="url(#a)"/>
+
+  <text x="105" y="160" fill="#4a5568" font-size="11" text-anchor="middle">usuario (navegador)</text>
+</svg>
+<figcaption>Flujo general: el CSV se carga en DuckDB al arrancar; el usuario pregunta desde la SPA → Express → Claude genera SQL → DuckDB responde → gráfico + análisis. SQLite guarda usuarios e historial.</figcaption>
+</figure>
+
+<h3>3.1 Arranque del servidor</h3>
+<p>Al iniciar, <code>index.js</code> ejecuta en orden: 1) inicializa <strong>SQLite</strong> (crea tablas y usuarios por defecto si la BD está vacía), 2) inicializa el <strong>servicio LLM</strong> (Claude), y 3) carga el <strong>CSV en DuckDB</strong> (≈2M filas, tarda de 10 a 30 s). Solo después el servidor acepta consultas. El endpoint <code>/api/health</code> reporta <code>initialized</code> para los <em>healthchecks</em>.</p>
+
+<!-- 4 -->
+<h2 id="conexiones">4. ¿Con qué se conecta?</h2>
+<table>
+  <tr><th>Sistema</th><th>Rol</th><th>Detalle de conexión</th></tr>
+  <tr><td>API de Claude (Anthropic)</td><td>Cerebro (NL → SQL + análisis)</td><td>HTTPS vía <code>@anthropic-ai/sdk</code>. Modelo por defecto <code>claude-haiku-4-5-20251001</code>. La <code>ANTHROPIC_API_KEY</code> se toma de <code>.env</code> o del panel de admin.</td></tr>
+  <tr><td>CSV de facturación</td><td>Origen de datos</td><td><code>MAVIJU_DASHBOARD_VENTAS_ANL_VTA_2 0.csv</code> (≈710 MB). Montado <em>read-only</em>; cargado a DuckDB en memoria al arrancar.</td></tr>
+  <tr><td>DuckDB</td><td>Motor analítico</td><td>Base <code>:memory:</code>. Ejecuta el SQL generado por Claude sobre la tabla <code>sales</code> (más una tabla opcional <code>clients</code> para mapas).</td></tr>
+  <tr><td>SQLite (<code>users.db</code>)</td><td>Estado persistente de la app</td><td>Usuarios, historial, favoritos, logs de consultas, feedback y settings. Persiste en un volumen Docker.</td></tr>
+  <tr><td>clients.csv (opcional)</td><td>Datos de mapa</td><td>Si existe junto al CSV de ventas, habilita las consultas geográficas (chart <code>map</code> con Leaflet).</td></tr>
+</table>
+
+<div class="note">
+  <strong>Sin ETL en vivo:</strong> AskJaime <em>no</em> se conecta directamente a SAP ni a la base transaccional. Consume un <strong>snapshot en CSV</strong> exportado del dashboard de ventas. Actualizar los datos = reemplazar el CSV y reiniciar (o rebuild) el contenedor.
+</div>
+
+<!-- 5 -->
+<h2 id="datos">5. Datos y modelo de información</h2>
+<p>Dos mundos de datos claramente separados: la <strong>tabla analítica <code>sales</code></strong> (solo lectura, en DuckDB) y las <strong>tablas operativas</strong> de la app (en SQLite).</p>
+
+<h3>5.1 Tabla analítica <code>sales</code> (DuckDB)</h3>
+<p>Cargada desde el CSV, una fila por línea de factura. Las columnas clave que Claude usa para generar SQL:</p>
+<table>
+  <tr><th>Grupo</th><th>Columnas</th></tr>
+  <tr><td>Cliente</td><td><code>CardCode</code>, <code>Cardname</code>, <code>Categoria_SN</code>, <code>SubCategoria_SN</code></td></tr>
+  <tr><td>Fuerza de ventas</td><td><code>Slpcode</code>, <code>NombreVendedor</code>, <code>NombreSupervisor</code></td></tr>
+  <tr><td>Producto</td><td><code>ItemCode</code>, <code>Dscription</code>, <code>ItmsgrpName</code> (familia), <code>SubFamiliaName</code>, <code>Categoria</code>, <code>SubCategoria</code></td></tr>
+  <tr><td>Métricas</td><td><code>Quantity</code>, <code>Price</code>, <code>PriceBefDi</code>, <code>LineTotal</code> (venta), <code>LineCost</code> (costo), <code>DescGlobal</code></td></tr>
+  <tr><td>Documento / fecha</td><td><code>Fecha</code>, <code>DocNum</code>, <code>DocumentoTipo</code></td></tr>
+  <tr><td>Geografía</td><td><code>ProvinciaPrincipal</code>, <code>CiudadPrincipal</code></td></tr>
+  <tr><td>Canal / promoción</td><td><code>Web</code> (SanaStore), <code>Feria</code>, <code>Remate</code>, <code>MaviOferta</code></td></tr>
+</table>
+<div class="note">
+  <strong>Moneda:</strong> todos los valores monetarios están en <strong>dólares ($)</strong>. <strong>Margen:</strong> derivado de <code>LineTotal</code> y <code>LineCost</code>; solo visible para roles con permiso (ver §7).
+</div>
+
+<h3>5.2 Tablas operativas (SQLite)</h3>
+<table>
+  <tr><th>Tabla</th><th>Descripción</th></tr>
+  <tr><td><code>users</code></td><td>Usuarios: <code>username</code>, <code>password_hash</code> (bcrypt), <code>name</code>, <code>role</code>, <code>slpcode</code>, <code>supervisor_name</code>, <code>active</code>, <code>last_login</code>.</td></tr>
+  <tr><td><code>query_history</code></td><td>Historial de preguntas por usuario, agrupado por fecha en el modal de historial.</td></tr>
+  <tr><td><code>saved_queries</code></td><td>Consultas favoritas (⭐) que el usuario guarda con un nombre.</td></tr>
+  <tr><td><code>query_logs</code></td><td>Log analítico para admin: pregunta, entidades resueltas, SQL, tipo de gráfico, explicación, error, filas, duración.</td></tr>
+  <tr><td><code>feedback</code></td><td>👍/👎 por respuesta + corrección opcional ("el dato correcto es…") para mejorar la confianza.</td></tr>
+  <tr><td><code>settings</code></td><td>Configuración en caliente (clave/valor): <code>anthropic_api_key</code>, <code>anthropic_model</code>.</td></tr>
+</table>
+
+<h3>5.3 Orígenes de pedido / canales</h3>
+<p>
+  <span class="pill on">WEB (SanaStore)</span>
+  <span class="pill on">FERIA</span>
+  <span class="pill on">REMATE (liquidación)</span>
+  <span class="pill on">MAVIOFERTA</span>
+  <span class="pill">Venta tradicional</span>
+</p>
+<p>Las columnas de canal (<code>Web</code>, <code>Feria</code>, <code>Remate</code>, <code>MaviOferta</code>) permiten segmentar cada línea por su canal o promoción de origen.</p>
+
+<!-- 6 -->
+<h2 id="flujo">6. Ciclo de vida de una consulta</h2>
+<p>El núcleo funcional es la traducción de <strong>lenguaje natural a SQL</strong>. Cada pregunta atraviesa una tubería con controles de seguridad, resolución de entidades y auto-corrección de SQL.</p>
+
+<figure>
+<svg viewBox="0 0 840 250" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="11">
+  <defs><marker id="b" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#4a5568"/></marker></defs>
+
+  <rect x="15"  y="100" width="120" height="46" rx="8" fill="#2c5282"/><text x="75"  y="122" fill="#fff" text-anchor="middle">Pregunta del</text><text x="75" y="136" fill="#fff" text-anchor="middle">usuario</text>
+  <rect x="165" y="100" width="120" height="46" rx="8" fill="#c53030"/><text x="225" y="121" fill="#fff" text-anchor="middle" font-size="10">Pre-check margen</text><text x="225" y="136" fill="#fff" text-anchor="middle" font-size="10">+ rate limit</text>
+  <rect x="315" y="100" width="120" height="46" rx="8" fill="#dd8b57"/><text x="375" y="121" fill="#fff" text-anchor="middle" font-size="10">Resolver entidades</text><text x="375" y="136" fill="#fff" text-anchor="middle" font-size="10">(Ronny→Ronny M.)</text>
+  <rect x="465" y="100" width="120" height="46" rx="8" fill="#e07b39"/><text x="525" y="121" fill="#fff" text-anchor="middle">Claude</text><text x="525" y="136" fill="#fff" text-anchor="middle" font-size="10">NL → SQL</text>
+  <rect x="615" y="100" width="90"  height="46" rx="8" fill="#2f855a"/><text x="660" y="122" fill="#fff" text-anchor="middle">DuckDB</text><text x="660" y="136" fill="#fff" text-anchor="middle" font-size="10">ejecuta</text>
+  <rect x="735" y="100" width="90"  height="46" rx="8" fill="#1f3a5f"/><text x="780" y="121" fill="#fff" text-anchor="middle" font-size="10">Gráfico +</text><text x="780" y="136" fill="#fff" text-anchor="middle" font-size="10">análisis</text>
+
+  <line x1="135" y1="123" x2="162" y2="123" stroke="#4a5568" stroke-width="1.5" marker-end="url(#b)"/>
+  <line x1="285" y1="123" x2="312" y2="123" stroke="#4a5568" stroke-width="1.5" marker-end="url(#b)"/>
+  <line x1="435" y1="123" x2="462" y2="123" stroke="#4a5568" stroke-width="1.5" marker-end="url(#b)"/>
+  <line x1="585" y1="123" x2="612" y2="123" stroke="#4a5568" stroke-width="1.5" marker-end="url(#b)"/>
+  <line x1="705" y1="123" x2="732" y2="123" stroke="#4a5568" stroke-width="1.5" marker-end="url(#b)"/>
+
+  <!-- retry loop -->
+  <path d="M660 100 C660 55, 525 55, 525 96" fill="none" stroke="#a0aec0" stroke-width="1.3" stroke-dasharray="4 3" marker-end="url(#b)"/>
+  <text x="592" y="52" fill="#718096" font-size="10" text-anchor="middle">auto-corrección SQL si falla</text>
+</svg>
+<figcaption>Tubería de una consulta: bloqueo de margen y rate-limit → resolución de entidades → generación de SQL con Claude → ejecución en DuckDB (con reintento/auto-corrección) → selección de gráfico + análisis en español.</figcaption>
+</figure>
+
+<h3>6.1 Puntos clave de la tubería</h3>
+<ul>
+  <li><strong>Rate limiting:</strong> 30 consultas de chat/min y 120 generales/min por IP (las llamadas al LLM son las caras).</li>
+  <li><strong>Pre-check de margen:</strong> si el usuario sin permiso menciona "margen", "ganancia", "utilidad" o "rentabilidad", se bloquea <em>antes</em> de llegar a Claude.</li>
+  <li><strong>Resolución de entidades:</strong> <code>entityResolver.js</code> normaliza (minúsculas + sin acentos) y hace <em>match</em> por palabra para nombres de persona: "Ronny" → "Ronny Marcillo".</li>
+  <li><strong>Multi-consulta:</strong> preguntas complejas pueden disparar varias SQL (p. ej. una barra + un plan de visitas), combinadas en una sola respuesta.</li>
+  <li><strong>Auto-corrección:</strong> si el SQL falla, se reintenta corrigiéndolo; si sigue fallando, se relajan los filtros.</li>
+  <li><strong>Alcance por rol:</strong> a cada SQL se le inyecta el filtro del usuario (ver §7).</li>
+</ul>
+
+<!-- 7 -->
+<h2 id="usuarios">7. Usuarios, roles y permisos</h2>
+<p>Autenticación por <strong>JWT</strong> (token + cookie), contraseñas con <strong>bcrypt</strong>. Cada rol determina qué filas ve el usuario y si puede consultar el <strong>margen</strong>. Existe además un cierre de sesión por inactividad.</p>
+
+<table>
+  <tr><th>Rol</th><th>Qué ve</th><th>¿Margen?</th></tr>
+  <tr><td><code>admin</code></td><td>Todos los datos + panel de administración (usuarios, logs, settings, feedback).</td><td>✅ Sí</td></tr>
+  <tr><td><code>gerente</code></td><td>Acceso completo a todos los datos de ventas.</td><td>✅ Sí</td></tr>
+  <tr><td><code>supervisor</code></td><td>Solo su equipo — filtro <code>NombreSupervisor = &lt;nombre&gt;</code>.</td><td>❌ No</td></tr>
+  <tr><td><code>vendedor</code></td><td>Solo sus propias ventas — filtro <code>Slpcode = &lt;código&gt;</code>.</td><td>❌ No</td></tr>
+</table>
+
+<div class="note">
+  <strong>Protección de margen en 4 capas:</strong> (1) pre-check por intención antes del LLM, (2) ocultar columnas de costo/margen del esquema mostrado a Claude, (3) reglas y ejemplos de margen omitidos del prompt, (4) validación del SQL generado antes de ejecutarlo. Rol desconocido → sin acceso a margen (falla cerrado).
+</div>
+
+<h3>7.1 Usuarios por defecto</h3>
+<p>Si la BD SQLite arranca vacía, se crean cuentas demo (cambiar en producción): <code>admin</code>, <code>gerente</code>, <code>angel.figueroa</code> (supervisor, slpcode 52) y <code>alejandro.moreno</code> (vendedor, slpcode 5).</p>
+
+<h3>7.2 Administración</h3>
+<p>El panel de admin (solo rol <code>admin</code>) ofrece CRUD de usuarios y reseteo de contraseña, configuración de la <strong>API key y el modelo de Claude</strong> en caliente (<code>llmService.reinitialize</code>), visor de <strong>logs de consultas</strong> con estadísticas, y resumen de <strong>feedback</strong>. Los vendedores se asocian a su <code>slpcode</code>; los supervisores a un <code>supervisor_name</code>.</p>
+
+<!-- 8 -->
+<h2 id="funciones">8. ¿Qué hace la aplicación?</h2>
+
+<div class="grid">
+  <div class="card"><h3 style="margin-top:0">💬 Consulta en lenguaje natural</h3>Preguntas en español que se convierten a SQL y se ejecutan al instante, con explicación redactada por el modelo.</div>
+  <div class="card"><h3 style="margin-top:0">📊 Gráficos interactivos</h3>~18 tipos: barras, líneas, pie, área, dispersión, combo/dual-axis, heatmap, mapa, comparativo, multi-línea y vistas especiales.</div>
+  <div class="card"><h3 style="margin-top:0">🔎 Drill-down</h3>Clic en un elemento del gráfico (barra/pie) genera una consulta de seguimiento automática.</div>
+  <div class="card"><h3 style="margin-top:0">🗓️ Filtros de fecha</h3>Atajos (hoy, semana, mes, año) y rangos personalizados aplicados a <code>Fecha</code>.</div>
+  <div class="card"><h3 style="margin-top:0">⭐ Favoritos e historial</h3>Historial de preguntas por fecha y consultas guardadas reutilizables.</div>
+  <div class="card"><h3 style="margin-top:0">📥 Exportar</h3>Descarga de resultados como CSV y tabla de datos plana.</div>
+  <div class="card"><h3 style="margin-top:0">🗺️ Planificador de visitas</h3>Vista <code>plan</code>: clientes rankeados en tarjetas con barra de progreso hacia una meta.</div>
+  <div class="card"><h3 style="margin-top:0">📉 Churn / perfil de cliente</h3>Vistas <code>churn</code> y <code>profile</code> para clientes en riesgo y ficha 360° de un cliente.</div>
+  <div class="card"><h3 style="margin-top:0">👍 Feedback</h3>Valoración de cada respuesta con corrección opcional para mejorar la calidad.</div>
+</div>
+
+<h3>8.1 Tipos de visualización soportados</h3>
+<p>
+  <span class="pill">bar</span><span class="pill">bar-horizontal</span><span class="pill">grouped-bar</span>
+  <span class="pill">line</span><span class="pill">multi-line</span><span class="pill">area</span>
+  <span class="pill">pie</span><span class="pill">scatter</span><span class="pill">combo / dual-axis</span>
+  <span class="pill">comparison</span><span class="pill on">heatmap</span><span class="pill on">map</span>
+  <span class="pill on">plan</span><span class="pill on">churn</span><span class="pill on">profile</span>
+  <span class="pill">table</span>
+</p>
+<p>El <code>ChartContainer</code> puede además <strong>corregir el tipo</strong> elegido por el LLM según los datos (p. ej. degradar un pie con demasiados sectores, o elegir tabla vs. barra según el título de la pregunta).</p>
+
+<h3>8.2 Endpoints principales de la API</h3>
+<pre><code>POST   /api/auth/login            # login (JWT + cookie)
+POST   /api/chat                  # consulta principal (NL → SQL → gráfico)
+GET    /api/metadata              # listas de valores para el prompt del LLM
+GET    /api/suggestions           # consultas sugeridas por rol
+GET    /api/history               # historial del usuario
+GET    /api/favorites             # consultas guardadas (⭐)
+POST   /api/feedback              # 👍/👎 + corrección
+GET    /api/admin/users           # CRUD usuarios (solo admin)
+GET    /api/admin/query-logs      # logs de consultas (solo admin)
+GET/POST /api/admin/settings      # API key + modelo de Claude (solo admin)
+GET    /api/health                # estado del servidor + datos cargados</code></pre>
+
+<!-- 9 -->
+<h2 id="despliegue">9. Despliegue e infraestructura</h2>
+<p>Orquestado con <strong>Docker Compose</strong>. El CSV de 710 MB <em>no</em> se hornea en la imagen: se monta de solo lectura desde el directorio padre. La BD SQLite persiste en un volumen con nombre.</p>
+
+<table>
+  <tr><th>Servicio</th><th>Imagen / build</th><th>Puerto</th><th>Rol</th></tr>
+  <tr><td><code>server</code></td><td>build local (Node/Express)</td><td>3001 → 3001</td><td>API REST + DuckDB en memoria + SQLite. Healthcheck en <code>/api/health</code>.</td></tr>
+  <tr><td><code>client</code></td><td>build local (nginx)</td><td>8080 → 80</td><td>SPA de React servida por nginx; arranca cuando el server está <em>healthy</em>.</td></tr>
+  <tr><td><code>volumen salesbot-db</code></td><td>—</td><td>—</td><td>Persiste <code>users.db</code> (usuarios, historial, favoritos, logs, feedback) entre rebuilds.</td></tr>
+</table>
+
+<h3>9.1 Comandos comunes</h3>
+<pre><code># Todo el stack con Docker
+docker compose up --build         # frontend :8080 · backend :3001
+
+# Desarrollo local
+cd server && npm install && npm start    # API en :3001
+cd client && npm install && npm start    # SPA en :3000 (proxy → :3001)
+
+# Evaluación de calidad de respuestas
+cd server && npm run eval</code></pre>
+
+<div class="note">
+  <strong>Variables de entorno clave:</strong> <code>ANTHROPIC_API_KEY</code> (obligatoria), <code>ANTHROPIC_MODEL</code> (por defecto <code>claude-haiku-4-5-20251001</code>), <code>CSV_PATH</code>, <code>USER_DB_PATH</code>, <code>JWT_SECRET</code>. <strong>No</strong> activar <code>NODE_ENV=production</code> sin HTTPS: las cookies pasan a <em>secure</em> y el login fallaría sobre <code>http://localhost</code>.
+</div>
+
+<div class="footer">
+  AskJaime (Maviju Salesbot) — Chatbot de analítica de ventas: lenguaje natural a SQL sobre datos de facturación.<br>
+  Documento generado automáticamente a partir del código del repositorio <code>sales-chatbot/</code>.
+</div>
+
+</div>
+</body>
+</html>

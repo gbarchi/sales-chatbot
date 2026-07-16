@@ -193,6 +193,7 @@ function App() {
       botMessage.rowCount = response.rowCount;
       botMessage.analysis = response.analysis;
       botMessage.followUps = response.followUps;
+      botMessage.provenance = response.provenance;
     }
 
     setMessages(prev => [...prev, botMessage]);

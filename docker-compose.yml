@@ -1,4 +1,16 @@
-version: '3.8'
+# Maviju Salesbot — full stack (backend + frontend) via Docker.
+#
+#   docker compose up --build
+#
+# Frontend: http://localhost:8080   Backend (direct): http://localhost:3001
+#
+# The 710MB sales CSV is NOT baked into the image — it is bind-mounted read-only
+# from the parent directory. The SQLite user/feedback/history DB persists in a
+# named volume so it survives rebuilds.
+#
+# Secrets (ANTHROPIC_API_KEY) are loaded from ./server/.env via env_file.
+# NOTE: do NOT set NODE_ENV=production unless you serve over HTTPS — auth cookies
+# become `secure` (HTTPS-only) and login will fail over plain http://localhost.
 
 services:
   server:
@@ -7,18 +19,30 @@ services:
       dockerfile: Dockerfile
     container_name: maviju-salesbot-server
     restart: unless-stopped
-    environment:
+    env_file:
+      - ./server/.env          # provides ANTHROPIC_API_KEY (and any overrides)
+    environment:               # explicit container paths — these win over env_file
       - PORT=3001
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-haiku-4-5-20251001}
       - CSV_PATH=/app/data/sales.csv
-      - AUTH_ENABLED=${AUTH_ENABLED:-true}
+      - USER_DB_PATH=/app/dbdata/users.db
       - JWT_SECRET=${JWT_SECRET:-maviju-salesbot-secret-2024}
     volumes:
-      # Mount the CSV data file
-      - ../MAVIJU_DASHBOARD_VENTAS_ANL_VTA_2 0.csv:/app/data/sales.csv:ro
+      # Sales CSV (read-only). Long syntax handles the space in the filename.
+      - type: bind
+        source: "../MAVIJU_DASHBOARD_VENTAS_ANL_VTA_2 0.csv"
+        target: /app/data/sales.csv
+        read_only: true
+      # Persistent SQLite DB (users, query history, favorites, feedback)
+      - salesbot-db:/app/dbdata
     ports:
       - "3001:3001"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 20              # CSV load into DuckDB takes ~10-30s on first boot
+      start_period: 60s
     networks:
       - maviju-network
 
@@ -31,9 +55,13 @@ services:
     ports:
       - "8080:80"
     depends_on:
-      - server
+      server:
+        condition: service_healthy
     networks:
       - maviju-network
+
+volumes:
+  salesbot-db:
 
 networks:
   maviju-network:

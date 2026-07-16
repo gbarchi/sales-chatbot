@@ -86,6 +86,22 @@ class UserService {
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_query_logs_timestamp ON query_logs(timestamp DESC)');
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_query_logs_result_type ON query_logs(result_type)');
 
+    // Answer feedback (👍/👎 + optional correction) for trust + correction harvesting
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS feedback (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id     INTEGER,
+        username    TEXT,
+        rating      TEXT NOT NULL,        -- 'up' | 'down'
+        query_text  TEXT,
+        sql         TEXT,
+        chart_type  TEXT,
+        correction  TEXT,                 -- optional "el dato correcto es..."
+        timestamp   DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_feedback_rating ON feedback(rating)');
+
     // Add last_login column if it doesn't exist (migration for existing databases)
     try {
       this.db.exec('ALTER TABLE users ADD COLUMN last_login DATETIME');
@@ -369,6 +385,31 @@ class UserService {
   // Rename a saved query (favorite)
   renameSavedQuery(userId, id, newName) {
     this.db.prepare('UPDATE saved_queries SET name = ? WHERE id = ? AND user_id = ?').run(newName, id, userId);
+  }
+
+  // Save answer feedback (👍/👎 + optional correction)
+  saveFeedback({ user_id = null, username = null, rating, query_text = null, sql = null, chart_type = null, correction = null }) {
+    if (rating !== 'up' && rating !== 'down') throw new Error('rating must be "up" or "down"');
+    const result = this.db.prepare(`
+      INSERT INTO feedback (user_id, username, rating, query_text, sql, chart_type, correction)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(user_id, username, rating, query_text, sql, chart_type, correction);
+    return { id: result.lastInsertRowid };
+  }
+
+  // Correction-harvesting view: counts + the most recent 👎/corrections to triage
+  // into new eval cases or metric definitions (admin only).
+  getFeedbackSummary(limit = 50) {
+    const counts = this.db.prepare(`
+      SELECT rating, COUNT(*) AS n FROM feedback GROUP BY rating
+    `).all();
+    const up = counts.find((c) => c.rating === 'up')?.n || 0;
+    const down = counts.find((c) => c.rating === 'down')?.n || 0;
+    const recentNegative = this.db.prepare(`
+      SELECT id, username, query_text, sql, chart_type, correction, timestamp
+      FROM feedback WHERE rating = 'down' ORDER BY timestamp DESC LIMIT ?
+    `).all(limit);
+    return { up, down, total: up + down, recentNegative };
   }
 
   // Save a query log entry (fire-and-forget safe — never throws)

@@ -2,6 +2,7 @@ import dataService from '../services/dataService.js';
 import llmService from '../services/llmService.js';
 import { userService } from '../services/userService.js';
 import { resolveEntities } from '../services/entityResolver.js';
+import { getMarginIntentKeywords, getMarginSqlPatterns, detectMetricsInSql } from '../services/metrics.js';
 
 // Apply explicit chart type request if LLM missed the userExplicitRequest flag.
 // Mirrors the phrasing list from the system prompt so both sources stay in sync.
@@ -92,7 +93,9 @@ function checkMarginQueryIntent(query, canViewMargin) {
   const queryLower = query.toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
-  const marginKeywords = ['margen', 'ganancia', 'utilidad', 'rentabilidad'];
+  // Derived from margin-restricted metrics in the registry (single source of truth).
+  // 'ganancia' is an alias of the `utilidad` metric; all are returned accent-free.
+  const marginKeywords = getMarginIntentKeywords();
 
   for (const keyword of marginKeywords) {
     if (queryLower.includes(keyword)) {
@@ -141,12 +144,9 @@ function checkMarginAccess(sql, canViewMargin) {
 
   const sqlUpper = sql.toUpperCase();
 
-  // Only block actual margin calculations or explicit cost data access
-  // Allow queries that just select sales/quantity data
-  const forbiddenPatterns = [
-    /LINECOST/,  // Any reference to LineCost column
-    /\(SUM\(LINETOTAL\)\s*-\s*SUM\(LINECOST\)\)/,  // Margin formula: (SUM(LineTotal) - SUM(LineCost))
-  ];
+  // Forbidden SQL patterns derived from margin-restricted metrics in the registry.
+  // Allows queries that only select sales/quantity data.
+  const forbiddenPatterns = getMarginSqlPatterns();
 
   for (const pattern of forbiddenPatterns) {
     if (pattern.test(sqlUpper)) {
@@ -198,7 +198,10 @@ export async function handleChat(req, res) {
   };
 
   try {
-    const { query, conversationHistory = [], dateFilter = null } = req.body;
+    const { query, conversationHistory = [], dateFilter = null, lean = false } = req.body;
+    // Lean mode (used by the eval harness): skip the analysis + follow-up LLM
+    // calls. Those don't affect SQL/chart correctness — the only thing evals
+    // assert on — so skipping them cuts a full eval run's LLM calls by ~2/3.
 
     logData.user_query  = query || '';
     logData.date_filter = dateFilter;
@@ -372,7 +375,7 @@ export async function handleChat(req, res) {
             }
           }
 
-          const analysis = data && data.length > 0
+          const analysis = data && data.length > 0 && !lean
             ? await llmService.analyzeResults(query, data, queryItem.chartConfig)
             : null;
 
@@ -410,7 +413,7 @@ export async function handleChat(req, res) {
       logData.llm_chart_type   = llmResponse.queries?.[0]?.chartType ?? null;
       saveToHistory(req.user?.id, query);
 
-      if (results.length > 0) {
+      if (results.length > 0 && !lean) {
         const last = results[results.length - 1];
         last.followUps = await llmService.generateFollowUps(query, last.data, last.chartConfig);
       }
@@ -438,6 +441,9 @@ export async function handleChat(req, res) {
 
     let data;
     let finalSQL = llmResponse.sql;
+    // Provenance flags: surfaced to the user so silent recoveries become visible.
+    let sqlWasAutoCorrected = false;
+    let sqlWasRelaxed = false;
     try {
       data = await dataService.executeQuery(finalSQL);
     } catch (sqlError) {
@@ -447,6 +453,7 @@ export async function handleChat(req, res) {
         try {
           data = await dataService.executeQuery(fixedSQL);
           finalSQL = fixedSQL;
+          sqlWasAutoCorrected = true;
           console.log('SQL auto-corrected successfully');
         } catch (retryError) {
           console.error('SQL Error (attempt 2):', retryError.message);
@@ -479,6 +486,7 @@ export async function handleChat(req, res) {
           if (relaxedData && relaxedData.length > 0) {
             data = relaxedData;
             finalSQL = relaxedSQL;
+            sqlWasRelaxed = true;
             console.log(`[RelaxSQL] Success: ${relaxedData.length} rows`);
           }
         } catch (e) {
@@ -501,13 +509,13 @@ export async function handleChat(req, res) {
       });
     }
 
-    // Analyze the results
+    // Analyze the results (skipped in lean mode — see top of handler)
     let analysis = null;
-    if (data && data.length > 0) {
+    if (data && data.length > 0 && !lean) {
       analysis = await llmService.analyzeResults(query, data, llmResponse.chartConfig);
     }
 
-    const followUps = await llmService.generateFollowUps(query, data, llmResponse.chartConfig);
+    const followUps = lean ? [] : await llmService.generateFollowUps(query, data, llmResponse.chartConfig);
 
     if (clientDisconnected) return;
 
@@ -515,6 +523,24 @@ export async function handleChat(req, res) {
     logData.result_type      = 'success';
     logData.result_row_count = data.length;
     saveToHistory(req.user?.id, query);
+
+    // Build provenance footer: source tier (semantic layer vs raw SQL), the
+    // canonical metrics used, data freshness, and whether the SQL was silently
+    // auto-corrected/relaxed (the blog's mitigation for silent failures).
+    const metricsUsed = detectMetricsInSql(finalSQL);
+    // Robust to the raw DuckDB value being a Date object or an ISO/plain string.
+    const maxRaw = metadata?.dateRange?.max;
+    const dataFreshness = maxRaw
+      ? String(maxRaw instanceof Date ? maxRaw.toISOString() : maxRaw).split('T')[0]
+      : null;
+    const provenance = {
+      source: metricsUsed.length > 0 ? 'semantic-layer' : 'raw-sql',
+      metrics: metricsUsed,
+      dataFreshness,
+      rowCount: data.length,
+      sqlWasAutoCorrected,
+      sqlWasRelaxed,
+    };
 
     // Format response
     safeSend({
@@ -526,6 +552,7 @@ export async function handleChat(req, res) {
       analysis: analysis,
       followUps,
       sql: finalSQL,
+      provenance,
       rowCount: data.length
     });
 

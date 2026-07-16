@@ -21,6 +21,20 @@ export async function sendChatMessage(query, conversationHistory = [], dateFilte
   return response.json();
 }
 
+// Submit 👍/👎 feedback on an answer (with optional correction text).
+export async function sendFeedback(payload) {
+  const response = await fetch(`${API_BASE}/feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  return response.json();
+}
+
 export async function fetchMetadata() {
   const response = await fetch(`${API_BASE}/metadata`, {
     credentials: 'include'

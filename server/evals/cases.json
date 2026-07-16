@@ -1,0 +1,199 @@
+[
+  {
+    "id": "metric-ventas-familia",
+    "category": "metrics",
+    "role": "gerente",
+    "query": "dame las ventas totales por familia de producto",
+    "expect": { "type": "success", "sqlIncludes": ["SUM(LineTotal)"], "chartTypeIn": ["bar", "pie"], "minRows": 1 }
+  },
+  {
+    "id": "metric-unidades",
+    "category": "metrics",
+    "role": "gerente",
+    "query": "cuántas unidades se vendieron por familia",
+    "expect": { "type": "success", "sqlIncludes": ["SUM(Quantity)"], "minRows": 1 }
+  },
+  {
+    "id": "metric-facturas",
+    "category": "metrics",
+    "role": "gerente",
+    "query": "número de facturas por vendedor",
+    "expect": { "type": "success", "sqlIncludes": ["COUNT(DISTINCT DocNum)"], "minRows": 1 }
+  },
+  {
+    "id": "metric-ticket-promedio",
+    "category": "metrics",
+    "role": "gerente",
+    "query": "ticket promedio por vendedor",
+    "expect": { "type": "success", "sqlIncludes": ["COUNT(DISTINCT DocNum)"], "sqlExcludes": ["AVG(LineTotal)"], "minRows": 1 }
+  },
+  {
+    "id": "metric-precio-promedio",
+    "category": "metrics",
+    "role": "gerente",
+    "query": "precio de venta promedio por familia",
+    "expect": { "type": "success", "sqlIncludesAny": ["SUM(LineTotal) / NULLIF(SUM(Quantity)", "SUM(LineTotal)/NULLIF(SUM(Quantity)"], "minRows": 1 }
+  },
+  {
+    "id": "metric-margen-formula",
+    "category": "metrics",
+    "role": "gerente",
+    "query": "margen por familia de producto",
+    "expect": { "type": "success", "sqlIncludes": ["SUM(LineCost)", "NULLIF(SUM(LineTotal)"], "minRows": 1 }
+  },
+  {
+    "id": "metric-descuento",
+    "category": "metrics",
+    "role": "gerente",
+    "query": "descuento promedio por familia",
+    "expect": { "type": "success", "sqlIncludesAny": ["PriceBefDi", "Price"], "minRows": 1 }
+  },
+
+  {
+    "id": "perm-vendedor-margen-blocked",
+    "category": "permissions",
+    "role": "vendedor",
+    "query": "margen por familia en 2025",
+    "expect": { "type": "error", "messageIncludes": "margen de venta" }
+  },
+  {
+    "id": "perm-vendedor-costo-blocked",
+    "category": "permissions",
+    "role": "vendedor",
+    "query": "costo total por familia en 2025",
+    "expect": { "type": "error", "messageIncludes": "margen de venta" }
+  },
+  {
+    "id": "perm-vendedor-utilidad-blocked",
+    "category": "permissions",
+    "role": "vendedor",
+    "query": "qué utilidad generé este año",
+    "expect": { "type": "error", "messageIncludes": "margen de venta" }
+  },
+  {
+    "id": "perm-vendedor-rentabilidad-blocked",
+    "category": "permissions",
+    "role": "vendedor",
+    "query": "rentabilidad por cliente",
+    "expect": { "type": "error", "messageIncludes": "margen de venta" }
+  },
+  {
+    "id": "perm-vendedor-ganancia-blocked",
+    "category": "permissions",
+    "role": "vendedor",
+    "query": "cuánta ganancia tuve por familia",
+    "expect": { "type": "error", "messageIncludes": "margen de venta" }
+  },
+  {
+    "id": "perm-supervisor-margen-blocked",
+    "category": "permissions",
+    "role": "supervisor",
+    "query": "margen promedio de mi equipo",
+    "expect": { "type": "error", "messageIncludes": "margen de venta" }
+  },
+  {
+    "id": "perm-vendedor-ventas-allowed",
+    "category": "permissions",
+    "role": "vendedor",
+    "query": "mis ventas por familia de producto",
+    "expect": { "type": "success", "sqlIncludes": ["Slpcode = 5"], "sqlExcludes": ["LineCost"], "minRows": 1 }
+  },
+  {
+    "id": "perm-gerente-margen-allowed",
+    "category": "permissions",
+    "role": "gerente",
+    "query": "margen por vendedor en 2025",
+    "expect": { "type": "success", "sqlIncludes": ["LineCost"], "minRows": 1 }
+  },
+
+  {
+    "id": "chart-bar-top10",
+    "category": "charts",
+    "role": "gerente",
+    "query": "top 10 vendedores por ventas",
+    "expect": { "type": "success", "chartTypeIn": ["bar"], "maxRows": 10, "minRows": 1 }
+  },
+  {
+    "id": "chart-line-trend",
+    "category": "charts",
+    "role": "gerente",
+    "query": "tendencia de ventas mensual en 2025",
+    "expect": { "type": "success", "chartTypeIn": ["line", "area"], "sqlIncludesAny": ["DATE_TRUNC('month'", "MONTH(Fecha)"], "minRows": 1 }
+  },
+  {
+    "id": "chart-pie-distribucion",
+    "category": "charts",
+    "role": "gerente",
+    "query": "distribución de ventas por familia en gráfico de pastel",
+    "expect": { "type": "success", "chartTypeIn": ["pie"], "minRows": 1 }
+  },
+  {
+    "id": "chart-comparison-temporal",
+    "category": "charts",
+    "role": "gerente",
+    "query": "comparar ventas mes a mes 2024 vs 2025",
+    "expect": { "type": "success", "chartTypeIn": ["comparison", "line", "multi-line"], "sqlIncludes": ["2024", "2025"], "minRows": 1 }
+  },
+  {
+    "id": "chart-grouped-bar-dimensional",
+    "category": "charts",
+    "role": "gerente",
+    "query": "comparar ventas por provincia entre 2024 y 2025",
+    "expect": { "type": "success", "chartTypeIn": ["grouped-bar", "bar", "comparison"], "sqlIncludes": ["2024", "2025"], "minRows": 1 }
+  },
+  {
+    "id": "chart-heatmap-matrix",
+    "category": "charts",
+    "role": "gerente",
+    "query": "ventas por categoria y mes en mapa de calor",
+    "expect": { "type": "success", "chartTypeIn": ["heatmap"], "minRows": 1 }
+  },
+  {
+    "id": "chart-table-explicit",
+    "category": "charts",
+    "role": "gerente",
+    "query": "muéstrame las ventas por familia en una tabla",
+    "expect": { "type": "success", "chartTypeIn": ["table"], "minRows": 1 }
+  },
+
+  {
+    "id": "gap-crecimiento-pct",
+    "category": "known-gap",
+    "role": "gerente",
+    "knownGap": true,
+    "query": "crecimiento porcentual de ventas de 2024 a 2025 por familia",
+    "expect": { "type": "success", "sqlIncludesAny": ["/ NULLIF", "* 100", "Crecimiento", "growth"], "minRows": 1 }
+  },
+  {
+    "id": "gap-trimestre",
+    "category": "known-gap",
+    "role": "gerente",
+    "knownGap": true,
+    "query": "ventas por trimestre en 2025",
+    "expect": { "type": "success", "sqlIncludesAny": ["DATE_TRUNC('quarter'", "QUARTER(", "EXTRACT(QUARTER"], "minRows": 1 }
+  },
+  {
+    "id": "gap-ventana-relativa",
+    "category": "known-gap",
+    "role": "gerente",
+    "knownGap": true,
+    "query": "ventas de las últimas 4 semanas",
+    "expect": { "type": "success", "sqlIncludesAny": ["INTERVAL", "CURRENT_DATE - "], "minRows": 1 }
+  },
+  {
+    "id": "gap-clientes-nuevos",
+    "category": "known-gap",
+    "role": "gerente",
+    "knownGap": true,
+    "query": "cuántos clientes nuevos hubo por mes en 2025",
+    "expect": { "type": "success", "sqlIncludesAny": ["MIN(Fecha)", "primera compra", "PrimeraCompra"], "minRows": 1 }
+  },
+  {
+    "id": "gap-tres-anios",
+    "category": "known-gap",
+    "role": "gerente",
+    "knownGap": true,
+    "query": "compara las ventas totales de 2023, 2024 y 2025",
+    "expect": { "type": "success", "sqlIncludes": ["2023", "2024", "2025"], "minRows": 1 }
+  }
+]

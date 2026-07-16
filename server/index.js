@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import { handleChat, getMetadata, getSuggestedQueries } from './controllers/chatController.js';
 import { getHistory, deleteHistory, clearHistory } from './controllers/historyController.js';
 import { getFavorites, saveFavorite, deleteFavorite, renameFavorite } from './controllers/favoritesController.js';
+import { submitFeedback, getFeedbackSummary } from './controllers/feedbackController.js';
 import {
   login, verifyToken, logout,
   getUsers, createUser, updateUser, updatePassword, deleteUser,
@@ -159,6 +160,10 @@ app.get('/api/favorites', authenticateToken, getFavorites);
 app.post('/api/favorites', authenticateToken, saveFavorite);
 app.delete('/api/favorites/:id', authenticateToken, deleteFavorite);
 app.patch('/api/favorites/:id', authenticateToken, renameFavorite);
+
+// Answer feedback (trust + correction harvesting)
+app.post('/api/feedback', authenticateToken, submitFeedback);
+app.get('/api/admin/feedback', authenticateToken, getFeedbackSummary);
 
 // Health check (public)
 app.get('/api/health', (req, res) => {

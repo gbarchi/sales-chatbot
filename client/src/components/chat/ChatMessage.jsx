@@ -1,14 +1,39 @@
 import React, { useState } from 'react';
 import ChartCarousel from '../charts/ChartCarousel';
 import ChartContainer from '../charts/ChartContainer';
+import { sendFeedback } from '../../services/api';
 
 function ChatMessage({ message, onClarificationSelect, onFollowUpClick, userQuery, onSaveFavorite }) {
   const [showSQL, setShowSQL] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [saveName, setSaveName] = useState('');
+  const [feedbackRating, setFeedbackRating] = useState(null); // 'up' | 'down' | null
+  const [showCorrection, setShowCorrection] = useState(false);
+  const [correctionText, setCorrectionText] = useState('');
   const isBot = message.type === 'bot';
   const hasChart = isBot && message.data && message.data.length > 0;
   const hasMultiResults = isBot && message.results && message.results.length > 0;
+
+  const submitRating = async (rating, correction = null) => {
+    setFeedbackRating(rating);
+    if (rating === 'down' && !correction) {
+      setShowCorrection(true); // prompt for the correct value on a thumbs-down
+    } else {
+      setShowCorrection(false);
+    }
+    try {
+      await sendFeedback({
+        rating,
+        query_text: userQuery || null,
+        sql: message.sql || null,
+        chart_type: message.chartType || null,
+        correction: correction || null,
+      });
+    } catch (e) {
+      // Non-blocking: feedback failures should never disrupt the conversation.
+      console.error('Feedback failed:', e);
+    }
+  };
 
   const handleDrillDown = (dimension, value) => {
     const drillQuery = `Muéstrame el detalle de ventas de ${value}`;
@@ -185,6 +210,65 @@ function ChatMessage({ message, onClarificationSelect, onFollowUpClick, userQuer
             </button>
             {showSQL && (
               <pre className="sql-code">{message.sql}</pre>
+            )}
+          </div>
+        )}
+
+        {/* Provenance footer: source tier, freshness, and visible warning when
+            the SQL was silently auto-corrected or relaxed. */}
+        {isBot && !hasMultiResults && message.provenance && (
+          <div className="provenance">
+            <span className="prov-item" title="Origen del resultado">
+              {message.provenance.source === 'semantic-layer'
+                ? `✓ vía métrica${message.provenance.metrics?.length ? ` ${message.provenance.metrics.join(', ')}` : ' canónica'}`
+                : '◦ SQL directo'}
+            </span>
+            {message.provenance.dataFreshness && (
+              <span className="prov-item" title="Última fecha en los datos">📅 Datos hasta {message.provenance.dataFreshness}</span>
+            )}
+            {message.provenance.rowCount != null && (
+              <span className="prov-item">{message.provenance.rowCount} fila{message.provenance.rowCount === 1 ? '' : 's'}</span>
+            )}
+            {(message.provenance.sqlWasAutoCorrected || message.provenance.sqlWasRelaxed) && (
+              <span className="prov-warn" title="La consulta se ajustó automáticamente; verifica el resultado">
+                ⚠ {message.provenance.sqlWasAutoCorrected ? 'consulta auto-corregida' : 'filtros relajados'}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Answer feedback (trust + correction harvesting) */}
+        {isBot && !message.isError && !!userQuery && (hasChart || message.sql) && (
+          <div className="feedback-row">
+            {feedbackRating === null ? (
+              <>
+                <span className="feedback-label">¿Útil?</span>
+                <button className="feedback-btn" title="Respuesta correcta" onClick={() => submitRating('up')}>👍</button>
+                <button className="feedback-btn" title="Respuesta incorrecta" onClick={() => submitRating('down')}>👎</button>
+              </>
+            ) : (
+              <span className="feedback-thanks">
+                {feedbackRating === 'up' ? '✓ Gracias por tu feedback' : '✓ Gracias, lo revisaremos'}
+              </span>
+            )}
+            {showCorrection && (
+              <div className="correction-box">
+                <input
+                  type="text"
+                  className="correction-input"
+                  placeholder="¿Cuál era el dato correcto? (opcional)"
+                  value={correctionText}
+                  onChange={(e) => setCorrectionText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && correctionText.trim()) submitRating('down', correctionText.trim()); }}
+                />
+                <button
+                  className="correction-send"
+                  disabled={!correctionText.trim()}
+                  onClick={() => submitRating('down', correctionText.trim())}
+                >
+                  Enviar
+                </button>
+              </div>
             )}
           </div>
         )}
@@ -486,6 +570,68 @@ function ChatMessage({ message, onClarificationSelect, onFollowUpClick, userQuer
           border-radius: 12px;
           overflow: hidden;
         }
+
+        .provenance {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 10px;
+          margin-top: 8px;
+          font-size: 11px;
+          color: #6b7280;
+        }
+        .prov-item { white-space: nowrap; }
+        .prov-warn {
+          color: #92400e;
+          background: #fef3c7;
+          border: 1px solid #fde68a;
+          border-radius: 6px;
+          padding: 1px 6px;
+          white-space: nowrap;
+        }
+
+        .feedback-row {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 6px;
+          margin-top: 8px;
+        }
+        .feedback-label { font-size: 12px; color: #6b7280; }
+        .feedback-btn {
+          background: none;
+          border: 1px solid var(--border-color);
+          border-radius: 6px;
+          padding: 2px 8px;
+          cursor: pointer;
+          font-size: 14px;
+          line-height: 1.4;
+        }
+        .feedback-btn:hover { background: #f3f4f6; }
+        .feedback-thanks { font-size: 12px; color: #059669; }
+        .correction-box {
+          display: flex;
+          gap: 6px;
+          margin-top: 6px;
+          width: 100%;
+        }
+        .correction-input {
+          flex: 1;
+          padding: 5px 8px;
+          border: 1px solid var(--border-color);
+          border-radius: 6px;
+          font-size: 12px;
+        }
+        .correction-send {
+          padding: 4px 10px;
+          border: none;
+          border-radius: 6px;
+          background: var(--primary-color);
+          color: #fff;
+          font-size: 12px;
+          cursor: pointer;
+        }
+        .correction-send:disabled { opacity: 0.5; cursor: not-allowed; }
 
         .clarification-options {
           display: flex;

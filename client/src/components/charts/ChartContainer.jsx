@@ -520,6 +520,15 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
 
   // Determine effective chart type - override LLM decision based on title/data
   const getEffectiveChartType = () => {
+    // A pie with too many slices is illegible (labels overlap into a blob).
+    // Fall back to a horizontal bar chart — readable for many categories —
+    // even if the user explicitly asked for "pastel".
+    const PIE_MAX_SLICES = 12;
+    if (chartType === 'pie' && data && data.length > PIE_MAX_SLICES) {
+      console.log(`Pie has ${data.length} categories (> ${PIE_MAX_SLICES}); falling back to horizontal bar`);
+      return 'bar-horizontal';
+    }
+
     // PRIORITY 0: If LLM detected explicit user request, NEVER override
     if (chartConfig?.userExplicitRequest === true) {
       console.log('Respecting user explicit request:', chartType);
@@ -880,6 +889,38 @@ function ChartContainer({ data, chartType, chartConfig, onDrillDown }) {
             </BarChart>
           </ResponsiveContainer>
         );
+
+      case 'bar-horizontal': {
+        // Pie fallback for high-cardinality data: sorted horizontal bars, one
+        // row per category, with height that grows so every label stays legible.
+        const sortedH = [...data].sort((a, b) => (b[yKey] ?? 0) - (a[yKey] ?? 0));
+        const chartH = Math.max(400, sortedH.length * 22);
+        return (
+          <div>
+            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>
+              {sortedH.length} categorías mostradas como barras horizontales — un gráfico de pastel sería ilegible con tantas categorías.
+            </div>
+            <ResponsiveContainer width="100%" height={chartH}>
+              <BarChart data={sortedH} layout="vertical" margin={{ top: 10, right: 50, left: 20, bottom: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                <XAxis type="number" tickFormatter={formatValue} tick={{ fontSize: 12 }} />
+                <YAxis type="category" dataKey={xKey} width={180} tick={{ fontSize: 11 }} interval={0} />
+                <Tooltip formatter={formatValue} />
+                <Bar
+                  dataKey={yKey}
+                  radius={[0, 4, 4, 0]}
+                  onClick={(d) => onDrillDown && onDrillDown(xKey, d[xKey])}
+                  style={{ cursor: onDrillDown ? 'pointer' : 'default' }}
+                >
+                  {sortedH.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        );
+      }
 
       case 'pie':
         return (
